@@ -4,64 +4,136 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
-/* ── PASSWORTSCHUTZ ── Ändere den Hash unten um das Passwort zu setzen ── */
+/* ════════════════════════════════════════════════════
+   AUTH — Stufe 1: Passwort  →  Stufe 2: Google Sign-In
+════════════════════════════════════════════════════ */
 (function(){
-  // SHA-256 Hash deines Passworts. Standard: "hanafi2024"
-  // Neuen Hash erzeugen: https://emn178.github.io/online-tools/sha256.html
+
+  // ── KONFIGURATION ─────────────────────────────────
   const CORRECT_HASH = '2bf745f187ffcc0eb8c3ed912c0ee580554090517b2da6d15e2cc5400c3e5e62';
-  // ^ DIESEN HASH ersetzen mit dem Hash deines gewünschten Passworts
+  // Passwort-Hash ändern: https://emn178.github.io/online-tools/sha256.html
+
+  const GOOGLE_CLIENT_ID = '620812694360-hkpvgr65tk9fubba0hqt2e4bvdjqj0fh.apps.googleusercontent.com';
+  // Google Client ID eintragen — Anleitung: siehe unten
+
+  const ALLOWED_EMAILS = [
+    // Hier deine erlaubten Google-Emails eintragen:
+    'tanyelekici88@gmail.com',
+    // 'freund@gmail.com',
+  ];
+  // ──────────────────────────────────────────────────
 
   const SESSION_KEY = 'hf_auth_ok';
-  if (sessionStorage.getItem(SESSION_KEY) === '1') return; // bereits eingeloggt
+  if (sessionStorage.getItem(SESSION_KEY) === '1') return;
 
-  // Alle Body-Kinder außer dem Overlay sofort verstecken
-  document.addEventListener('DOMContentLoaded', function() {
+  function showApp() {
+    sessionStorage.setItem(SESSION_KEY, '1');
     const overlay = document.getElementById('_auth_overlay');
-    if (!overlay) return;
-    overlay.style.display = 'flex';
-    // Alles außer dem Overlay ausblenden
-    Array.from(document.body.children).forEach(el => {
-      if (el.id !== '_auth_overlay') el.style.visibility = 'hidden';
-    });
-    document.body.style.overflow = 'hidden';
-    setTimeout(() => document.getElementById('_auth_input')?.focus(), 100);
-  });
+    if (overlay) {
+      overlay.style.opacity = '0';
+      overlay.style.transform = 'scale(1.03)';
+      setTimeout(() => {
+        overlay.remove();
+        Array.from(document.body.children).forEach(el => el.style.visibility = '');
+        document.body.style.overflow = '';
+      }, 380);
+    }
+  }
 
+  function showError(msg, inputEl) {
+    const err = document.getElementById('_auth_err');
+    if (err) { err.textContent = msg; setTimeout(() => err.textContent = '', 3000); }
+    if (inputEl) {
+      inputEl.value = '';
+      inputEl.focus();
+      inputEl.style.borderColor = '#e05c5c';
+      setTimeout(() => inputEl.style.borderColor = '', 2500);
+    }
+  }
+
+  // ── STUFE 2: Google Sign-In ────────────────────────
+  window._onGoogleSignIn = function(response) {
+    try {
+      // JWT payload dekodieren (kein Verify nötig — wir prüfen nur Email)
+      const payload = JSON.parse(atob(response.credential.split('.')[1]));
+      const email   = (payload.email || '').toLowerCase().trim();
+      const allowed = ALLOWED_EMAILS.map(e => e.toLowerCase().trim());
+
+      if (allowed.includes(email)) {
+        // Erfolg — Name + Avatar kurz anzeigen
+        const step2 = document.getElementById('_auth_step2');
+        if (step2) {
+          step2.innerHTML = `
+            <div style="text-align:center;animation:fadeInUp .4s ease both">
+              <img src="${payload.picture}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;">
+              <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${payload.name}</div>
+              <div style="color:#9b9080;font-size:12px;margin:4px 0 14px;">${email}</div>
+              <div style="color:#5cbb8a;font-size:13px;">✓ Zugang gewährt</div>
+            </div>`;
+        }
+        setTimeout(showApp, 1200);
+      } else {
+        showError(`❌ ${email} ist nicht berechtigt.`);
+        // Google-Sitzung beenden damit der User nochmal wählen kann
+        if (window.google?.accounts?.id) google.accounts.id.disableAutoSelect();
+      }
+    } catch(e) {
+      showError('Google-Anmeldung fehlgeschlagen. Bitte nochmal versuchen.');
+    }
+  };
+
+  // ── STUFE 1: Passwort ─────────────────────────────
   window._checkPassword = async function() {
     const input = document.getElementById('_auth_input');
-    const err   = document.getElementById('_auth_err');
-    const pw = input.value;
+    const pw = (input?.value || '').trim();
     if (!pw) return;
 
-    // SHA-256 des eingegebenen Passworts berechnen
     const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 
     if (hash === CORRECT_HASH) {
-      sessionStorage.setItem(SESSION_KEY, '1');
-      // Overlay ausblenden, App einblenden
-      const overlay = document.getElementById('_auth_overlay');
-      if (overlay) {
-        overlay.style.opacity = '0';
-        setTimeout(() => {
-          overlay.remove();
-          Array.from(document.body.children).forEach(el => el.style.visibility = '');
-          document.body.style.overflow = '';
-        }, 350);
-      }
+      // Zur Stufe 2 wechseln
+      const step1 = document.getElementById('_auth_step1');
+      const step2 = document.getElementById('_auth_step2');
+      // Punkte aktualisieren
+      const d1 = document.getElementById('_dot1'), d2 = document.getElementById('_dot2');
+      if (d1) d1.style.background = 'rgba(255,255,255,0.15)';
+      if (d2) d2.style.background = '#d4ac64';
+      if (step1) { step1.style.opacity='0'; step1.style.transform='translateY(-12px)'; setTimeout(()=>step1.style.display='none',320); }
+      if (step2) { setTimeout(()=>{ step2.style.display='flex'; setTimeout(()=>{ step2.style.opacity='1'; step2.style.transform='translateY(0)'; },20); },340); }
+      // Google GSI initialisieren
+      setTimeout(() => {
+        if (window.google?.accounts?.id) {
+          google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: window._onGoogleSignIn, auto_select: false });
+          google.accounts.id.renderButton(document.getElementById('_google_btn'), {
+            theme: 'filled_black', size: 'large', shape: 'pill',
+            text: 'signin_with', logo_alignment: 'center', width: 280,
+          });
+        } else {
+          document.getElementById('_auth_step2').innerHTML += `<div style="color:#e05c5c;font-size:12px;margin-top:8px;">⚠️ Google Sign-In konnte nicht geladen werden.</div>`;
+        }
+      }, 400);
     } else {
-      err.textContent = 'Falsches Passwort. Versuche es erneut.';
-      input.value = '';
-      input.focus();
-      input.style.borderColor = '#e05c5c';
-      setTimeout(() => { input.style.borderColor = ''; err.textContent = ''; }, 2000);
+      showError('Falsches Passwort. Versuche es erneut.', input);
     }
   };
 
   window._authKey = function(e) { if (e.key === 'Enter') window._checkPassword(); };
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const overlay = document.getElementById('_auth_overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    Array.from(document.body.children).forEach(el => {
+      if (el.id !== '_auth_overlay') el.style.visibility = 'hidden';
+    });
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => document.getElementById('_auth_input')?.focus(), 150);
+  });
 })();
 </script>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com; connect-src https://generativelanguage.googleapis.com https://api.x.ai https://api.anthropic.com https://image.pollinations.ai https://stablehorde.net https://api-inference.huggingface.co http://localhost:* http://127.0.0.1:* https://fonts.googleapis.com https://fonts.gstatic.com https://*.googleapis.com wss://*.firebaseio.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://accounts.google.com; connect-src https://generativelanguage.googleapis.com https://api.x.ai https://api.anthropic.com https://image.pollinations.ai https://stablehorde.net https://api-inference.huggingface.co http://localhost:* http://127.0.0.1:* https://fonts.googleapis.com https://fonts.gstatic.com https://*.googleapis.com https://accounts.google.com wss://*.firebaseio.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com;">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="no-referrer">
@@ -1714,30 +1786,57 @@ body {
 <body>
 
 <!-- ── AUTH OVERLAY ─────────────────────────────── -->
-<div id="_auth_overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0c0d0f;
-  align-items:center;justify-content:center;flex-direction:column;gap:20px;
-  transition:opacity 0.4s ease;font-family:'DM Sans',sans-serif;">
-  <div style="text-align:center;margin-bottom:8px;">
-    <div style="font-size:52px;margin-bottom:12px;filter:drop-shadow(0 0 20px rgba(212,172,100,0.4))">🕌</div>
-    <div style="font-size:22px;font-weight:600;color:#f0ebe0;letter-spacing:0.5px;">Hanafi Fiqh Assistent</div>
-    <div style="font-size:13px;color:#9b9080;margin-top:6px;">Privater Zugang — Passwort erforderlich</div>
+<div id="_auth_overlay" style="display:none;position:fixed;inset:0;z-index:99999;
+  background:radial-gradient(ellipse at 50% 0%,rgba(212,172,100,0.06) 0%,#0c0d0f 70%);
+  align-items:center;justify-content:center;flex-direction:column;
+  transition:opacity 0.4s ease,transform 0.4s ease;font-family:'DM Sans',sans-serif;">
+
+  <!-- Logo -->
+  <div style="text-align:center;margin-bottom:28px;">
+    <div style="font-size:56px;margin-bottom:14px;filter:drop-shadow(0 0 24px rgba(212,172,100,0.5));animation:pulse 3s ease infinite">🕌</div>
+    <div style="font-size:23px;font-weight:700;color:#f0ebe0;letter-spacing:0.3px;">Hanafi Fiqh Assistent</div>
+    <div style="font-size:12px;color:#5e5850;margin-top:5px;letter-spacing:1.5px;text-transform:uppercase;">Privater Zugang</div>
   </div>
-  <div style="display:flex;flex-direction:column;gap:10px;width:min(320px,90vw);">
+
+  <!-- Fortschritts-Punkte -->
+  <div style="display:flex;gap:8px;margin-bottom:24px;">
+    <div id="_dot1" style="width:8px;height:8px;border-radius:50%;background:#d4ac64;transition:all .4s;"></div>
+    <div id="_dot2" style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.15);transition:all .4s;"></div>
+  </div>
+
+  <!-- STUFE 1: Passwort -->
+  <div id="_auth_step1" style="display:flex;flex-direction:column;gap:10px;width:min(320px,90vw);transition:opacity .3s,transform .3s;">
+    <div style="font-size:12px;color:#9b9080;text-align:center;margin-bottom:2px;letter-spacing:0.3px;">Schritt 1 von 2 — Zugangscode</div>
     <input id="_auth_input" type="password" placeholder="Passwort eingeben…" onkeydown="_authKey(event)"
-      style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.3);
-      background:rgba(255,255,255,0.05);color:#f0ebe0;font-size:15px;outline:none;
-      transition:border-color 0.2s;font-family:inherit;"
-      onfocus="this.style.borderColor='rgba(212,172,100,0.7)'"
-      onblur="this.style.borderColor='rgba(212,172,100,0.3)'">
+      style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.25);
+      background:rgba(255,255,255,0.04);color:#f0ebe0;font-size:15px;outline:none;
+      transition:border-color .2s,box-shadow .2s;font-family:inherit;letter-spacing:1px;"
+      onfocus="this.style.borderColor='rgba(212,172,100,0.65)';this.style.boxShadow='0 0 0 3px rgba(212,172,100,0.08)'"
+      onblur="this.style.borderColor='rgba(212,172,100,0.25)';this.style.boxShadow=''">
     <button onclick="_checkPassword()"
       style="padding:14px;border-radius:12px;border:none;cursor:pointer;font-size:15px;font-weight:600;
-      background:linear-gradient(135deg,#d4ac64,#b8903c);color:#0c0d0f;font-family:inherit;
-      transition:opacity 0.2s,transform 0.15s;"
-      onmouseenter="this.style.opacity='0.88'" onmouseleave="this.style.opacity='1'">
-      Einloggen
+      background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f;font-family:inherit;
+      box-shadow:0 4px 18px rgba(212,172,100,0.25);transition:opacity .2s,transform .15s,box-shadow .2s;"
+      onmouseenter="this.style.opacity='.88';this.style.transform='translateY(-1px)'"
+      onmouseleave="this.style.opacity='1';this.style.transform=''">
+      Weiter →
     </button>
-    <div id="_auth_err" style="color:#e05c5c;font-size:13px;text-align:center;min-height:18px;"></div>
+    <div id="_auth_err" style="color:#e05c5c;font-size:12.5px;text-align:center;min-height:18px;"></div>
   </div>
+
+  <!-- STUFE 2: Google Sign-In (versteckt bis Passwort korrekt) -->
+  <div id="_auth_step2" style="display:none;flex-direction:column;align-items:center;gap:14px;
+    width:min(340px,90vw);opacity:0;transform:translateY(12px);transition:opacity .35s,transform .35s;">
+    <div style="font-size:12px;color:#9b9080;text-align:center;letter-spacing:0.3px;">Schritt 2 von 2 — Google-Konto bestätigen</div>
+    <div style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.8;">
+      ✓ Passwort korrekt — bitte mit Google anmelden
+    </div>
+    <div id="_google_btn" style="display:flex;justify-content:center;"></div>
+    <div style="font-size:11px;color:#5e5850;text-align:center;line-height:1.6;">
+      Nur erlaubte Google-Accounts erhalten Zugang
+    </div>
+  </div>
+
 </div>
 <!-- ── END AUTH OVERLAY ──────────────────────────── -->
 
