@@ -8,7 +8,7 @@
 (function(){
   // SHA-256 Hash deines Passworts. Standard: "hanafi2024"
   // Neuen Hash erzeugen: https://emn178.github.io/online-tools/sha256.html
-  const CORRECT_HASH = '5969a278f34ee6928b907eb430ee7c8d613e5d3cc71e0933ba955a170a12798f';
+  const CORRECT_HASH = '2bf745f187ffcc0eb8c3ed912c0ee580554090517b2da6d15e2cc5400c3e5e62';
   // ^ DIESEN HASH ersetzen mit dem Hash deines gewünschten Passworts
 
   const SESSION_KEY = 'hf_auth_ok';
@@ -1807,7 +1807,7 @@ body {
           <div class="img-provider-row" style="flex-wrap:wrap;gap:5px;" id="poll-model-row">
             <button class="img-size-btn active" onclick="selectPollinationsModel(this,'flux')">⚡ Flux</button>
             <button class="img-size-btn" onclick="selectPollinationsModel(this,'flux-realism')">📷 Realism</button>
-            <button class="img-size-btn" onclick="selectPollinationsModel(this,'flux-cablyai')">🎨 Cablyai</button>
+            <button class="img-size-btn" onclick="selectPollinationsModel(this,'flux-cablyai')">🎨 Anime</button>
             <button class="img-size-btn" onclick="selectPollinationsModel(this,'turbo')">🚀 Turbo</button>
           </div>
         </div>
@@ -1820,8 +1820,9 @@ body {
         <div class="img-size-row">
           <button class="img-size-btn active" onclick="selectImgSize(this,'512x512')">512²</button>
           <button class="img-size-btn" onclick="selectImgSize(this,'768x768')">768²</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'512x768')">Portrait</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'768x512')">Landscape</button>
+          <button class="img-size-btn" onclick="selectImgSize(this,'1024x1024')">1024²</button>
+          <button class="img-size-btn" onclick="selectImgSize(this,'768x1024')">Portrait</button>
+          <button class="img-size-btn" onclick="selectImgSize(this,'1024x768')">Landscape</button>
         </div>
       </div>
 
@@ -4506,7 +4507,7 @@ function exportChatAsMarkdown() {
 //  BILDGENERIERUNG
 // ═══════════════════════════════════════════════
 let _imgProvider = 'pollinations';
-let _imgSize = '1024x1024';
+let _imgSize = '512x512';
 
 let _pollinationsModel = 'flux';
 
@@ -4536,7 +4537,7 @@ async function generateImage() {
 
   results.innerHTML = `<div class="img-loading">
     <div class="img-loading-spinner"></div>
-    <div>Bild wird generiert…<br><span style="font-size:10.5px;opacity:0.6;">🎲 Stable Horde · kostenlos · ~1–3 Min.</span></div>
+    <div>Bild wird generiert…<br><span style="font-size:10.5px;opacity:0.6;">✨ Pollinations AI · kostenlos · ~15–30 Sek.</span></div>
   </div>`;
 
   try {
@@ -4579,66 +4580,86 @@ function blobToBase64Img(blob) {
   });
 }
 
-// Stable Horde — 100% kostenlos, kein Key, garantiert
+// Pollinations AI — 100% kostenlos, kein Key, kein Polling, ~15-30 Sek.
 async function generateImagePollinations(prompt) {
   const [w, h] = _imgSize.split('x').map(Number);
   const modelMap = {
-    'flux':          'Stable Diffusion XL',
-    'flux-realism':  'Realistic Vision',
-    'flux-cablyai':  'DreamShaper',
-    'turbo':         'Stable Diffusion 2.1',
+    'flux':         'flux',
+    'flux-realism': 'flux-realism',
+    'flux-cablyai': 'flux-anime',
+    'turbo':        'turbo',
+  };
+  const model = modelMap[_pollinationsModel] || 'flux';
+  const seed  = Math.floor(Math.random() * 999999);
+  const width  = Math.min(w, 1024);
+  const height = Math.min(h, 1024);
+
+  // Ladetext aktualisieren
+  const loadEl = document.querySelector('#img-results .img-loading div:last-child');
+  if (loadEl) loadEl.innerHTML = `✨ Pollinations AI · ${model}<br><span style="font-size:10px;opacity:0.7;">Generierung läuft… bitte warten</span>`;
+
+  const encodedPrompt = encodeURIComponent(prompt);
+  const imgUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&model=${model}&seed=${seed}`;
+
+  // Bild mit 90s Timeout laden
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 90000);
+
+  let res;
+  try {
+    res = await fetch(imgUrl, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    // Fallback: Stable Horde wenn Pollinations fehlschlägt
+    if (loadEl) loadEl.innerHTML = `⏳ Fallback: Stable Horde…<br><span style="font-size:10px;opacity:0.7;">Kann 1–3 Min. dauern</span>`;
+    return await generateImageHorde(prompt, w, h);
+  }
+
+  const blob = await res.blob();
+  if (!blob.size) throw new Error('Pollinations: Leeres Bild erhalten');
+  return await blobToBase64Img(blob);
+}
+
+// Stable Horde als Fallback
+async function generateImageHorde(prompt, w, h) {
+  const modelMap = {
+    'flux':         'Stable Diffusion XL',
+    'flux-realism': 'Realistic Vision',
+    'flux-cablyai': 'DreamShaper',
+    'turbo':        'Stable Diffusion 2.1',
   };
   const hordeModel = modelMap[_pollinationsModel] || 'Stable Diffusion XL';
 
-  // Generierung starten
   const startRes = await fetch('https://stablehorde.net/api/v2/generate/async', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': '0000000000' },
     body: JSON.stringify({
       prompt,
-      params: {
-        width: Math.min(w, 768),
-        height: Math.min(h, 768),
-        steps: 20,
-        n: 1,
-        sampler_name: 'k_euler_a',
-        cfg_scale: 7,
-      },
-      models: [hordeModel],
-      r2: false,
-      shared: true,
+      params: { width: Math.min(w,768), height: Math.min(h,768), steps: 20, n: 1, sampler_name: 'k_euler_a', cfg_scale: 7 },
+      models: [hordeModel], r2: false, shared: true,
     }),
   });
-
-  if (!startRes.ok) {
-    const e = await startRes.json().catch(() => ({}));
-    throw new Error(`Stable Horde Start: ${e?.message || startRes.status}`);
-  }
+  if (!startRes.ok) { const e = await startRes.json().catch(()=>({})); throw new Error(`Stable Horde: ${e?.message||startRes.status}`); }
   const { id } = await startRes.json();
-  if (!id) throw new Error('Stable Horde: Keine Job-ID erhalten');
+  if (!id) throw new Error('Stable Horde: Keine Job-ID');
 
-  // Auf Ergebnis warten (polling alle 8 Sek)
   for (let i = 0; i < 45; i++) {
     await new Promise(r => setTimeout(r, 8000));
-
-    const checkRes = await fetch(`https://stablehorde.net/api/v2/generate/check/${id}`);
-    const c = await checkRes.json();
-
-    // Ladetext aktualisieren
+    const c = await fetch(`https://stablehorde.net/api/v2/generate/check/${id}`).then(r=>r.json());
     const loadEl = document.querySelector('#img-results .img-loading div:last-child');
-    if (loadEl) loadEl.innerHTML = `🎲 Stable Horde · ${hordeModel}<br><span style="font-size:10px;opacity:0.7;">Wartezeit: ~${c.wait_time ?? '?'}s · ${c.queue_position ?? '?'} in Warteschlange</span>`;
-
-    if (c.faulted) throw new Error('Stable Horde: Generierung fehlgeschlagen — nochmal versuchen');
-
+    if (loadEl) loadEl.innerHTML = `🎲 Stable Horde · ${hordeModel}<br><span style="font-size:10px;opacity:0.7;">~${c.wait_time??'?'}s · Pos. ${c.queue_position??'?'}</span>`;
+    if (c.faulted) throw new Error('Stable Horde: Fehlgeschlagen — nochmal versuchen');
     if (c.done) {
-      const statusRes = await fetch(`https://stablehorde.net/api/v2/generate/status/${id}`);
-      const s = await statusRes.json();
+      const s = await fetch(`https://stablehorde.net/api/v2/generate/status/${id}`).then(r=>r.json());
       const img = s.generations?.[0]?.img;
-      if (img) return img; // bereits Base64
-      throw new Error('Stable Horde: Bild leer in Antwort');
+      if (img) return img;
+      throw new Error('Stable Horde: Bild leer');
     }
   }
-  throw new Error('Stable Horde: Timeout — bitte nochmal versuchen');
+  throw new Error('Stable Horde: Timeout — nochmal versuchen');
 }
 
 // Gemini Bildgenerierung
