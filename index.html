@@ -324,6 +324,10 @@
 
   // ── Topbar: User-Avatar anzeigen ───────────────────
   window._showTopbarUser = function _showTopbarUser(user) {
+    // Google-Verbinden-Button verstecken — User ist jetzt eingeloggt
+    const gcBtn = document.getElementById('google-connect-btn');
+    if (gcBtn) gcBtn.style.display = 'none';
+
     const topbar = document.getElementById('topbar');
     if (!topbar || document.getElementById('_tb_user')) return;
     const el = document.createElement('div');
@@ -360,6 +364,9 @@
         _db   = firebase.firestore();
       } catch(e) { console.warn('Firebase init (DOMContentLoaded):', e); }
     }
+    // Global verfügbar machen für connectGoogleAccount
+    window._fbAuth = _auth;
+    window._fbDb   = window._fbDb || _db;
 
     const overlay = document.getElementById('_auth_overlay');
     if (!overlay) return;
@@ -5314,23 +5321,47 @@ function runSearch(query) {
     const safeQuery = escHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const highlighted = escHtml(excerpt).replace(new RegExp(safeQuery, 'gi'), match => `<mark>${match}</mark>`);
     item.innerHTML = `<div class="search-result-role">${m.role === 'user' ? 'Du' : 'Assistent'}</div><div class="search-result-text">${highlighted}</div>`;
-    item.onclick = () => { closeSearch(); scrollToMessage(m); };
+    item.onclick = () => { const idx = chat.messages.indexOf(m); closeSearch(); scrollToMessage(m, query, idx); };
     results.appendChild(item);
   });
 }
 
-function scrollToMessage(msg) {
-  // Nachrichten neu rendern und dann zum entsprechenden scrollen
+function scrollToMessage(msg, query, msgIdx) {
   renderMessages();
   setTimeout(() => {
-    const bubbles = document.querySelectorAll('.message-bubble');
-    for (const b of bubbles) {
-      if (b.textContent.includes(msg.content.slice(0, 50))) {
-        b.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        b.style.outline = '2px solid var(--accent)';
-        setTimeout(() => b.style.outline = '', 2000);
-        break;
+    const wrappers = document.querySelectorAll('.message-wrapper');
+    let wrapper;
+    if (msgIdx !== undefined && msgIdx >= 0 && msgIdx < wrappers.length) {
+      wrapper = wrappers[msgIdx];
+    }
+    if (!wrapper) {
+      for (const w of wrappers) {
+        const b = w.querySelector('.message-bubble');
+        if (b && b.textContent.includes(msg.content.slice(0, 50))) {
+          wrapper = w;
+          break;
+        }
       }
+    }
+    if (!wrapper) return;
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    wrapper.style.transition = 'box-shadow 0.3s';
+    wrapper.style.boxShadow = '0 0 0 2px var(--accent)';
+    wrapper.style.borderRadius = '8px';
+    const bubble = wrapper.querySelector('.message-bubble');
+    if (bubble && query && query.trim()) {
+      const safeQ = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const originalHTML = bubble.innerHTML;
+      bubble.innerHTML = bubble.innerHTML.replace(
+        new RegExp(`(${safeQ})(?![^<]*>)`, 'gi'),
+        '<mark style="background:var(--accent);color:#1a1a1a;border-radius:2px;padding:0 2px;font-weight:600">$1</mark>'
+      );
+      setTimeout(() => {
+        bubble.innerHTML = originalHTML;
+        wrapper.style.boxShadow = '';
+      }, 3000);
+    } else {
+      setTimeout(() => { wrapper.style.boxShadow = ''; }, 2000);
     }
   }, 100);
 }
