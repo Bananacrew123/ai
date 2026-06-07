@@ -203,8 +203,87 @@
   };
   window._authKey = e => { if(e.key==='Enter') window._checkPassword(); };
 
+  // ── Passwort vergessen ─────────────────────────────
+  function _showForgotPassword() {
+    document.getElementById('_auth_step1').style.display = 'none';
+    const r = document.getElementById('_auth_reset');
+    r.style.display = 'flex'; r.style.opacity = '1';
+    setTimeout(() => document.getElementById('_reset_email')?.focus(), 80);
+  }
+  function _showStep1() {
+    document.getElementById('_auth_reset').style.display = 'none';
+    document.getElementById('_auth_newpw').style.display = 'none';
+    const s1 = document.getElementById('_auth_step1');
+    s1.style.display = 'flex'; s1.style.opacity = '1'; s1.style.transform = 'translateY(0)';
+  }
+  window._showForgotPassword = _showForgotPassword;
+  window._showStep1 = _showStep1;
+
+  window._sendResetLink = function() {
+    const email = (document.getElementById('_reset_email')?.value || '').trim();
+    const statusEl = document.getElementById('_reset_status');
+    if (!email || !email.includes('@')) {
+      statusEl.style.color = '#e05c5c'; statusEl.textContent = 'Ungültige E-Mail.'; return;
+    }
+    if (!_auth) {
+      statusEl.style.color = '#e05c5c'; statusEl.textContent = 'Firebase nicht verfügbar.'; return;
+    }
+    const actionCodeSettings = {
+      url: window.location.origin + window.location.pathname,
+      handleCodeInApp: true
+    };
+    statusEl.style.color = '#9b9080'; statusEl.textContent = 'Wird gesendet…';
+    localStorage.setItem('hf_reset_email', email);
+    _auth.sendSignInLinkToEmail(email, actionCodeSettings)
+      .then(() => {
+        statusEl.style.color = '#5cbb8a';
+        statusEl.textContent = 'Link gesendet! Prüfe deine E-Mails.';
+      })
+      .catch(err => {
+        statusEl.style.color = '#e05c5c';
+        statusEl.textContent = 'Fehler: ' + (err.message || err.code);
+      });
+  };
+
+  // ── Email-Link-Rückkehr erkennen ───────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!_auth || !firebase?.auth) return;
+    if (!firebase.auth().isSignInWithEmailLink(window.location.href)) return;
+    const email = localStorage.getItem('hf_reset_email') || prompt('Bitte E-Mail-Adresse bestätigen:');
+    if (!email) return;
+    firebase.auth().signInWithEmailLink(email, window.location.href)
+      .then(() => {
+        localStorage.removeItem('hf_reset_email');
+        // URL bereinigen
+        history.replaceState(null, '', window.location.pathname);
+        // Neues-Passwort-Formular zeigen
+        setTimeout(() => {
+          ['_auth_step1','_auth_reset','_auth_step2'].forEach(id => {
+            const el = document.getElementById(id); if(el) el.style.display = 'none';
+          });
+          const np = document.getElementById('_auth_newpw');
+          if (np) { np.style.display = 'flex'; }
+          setTimeout(() => document.getElementById('_newpw_input')?.focus(), 80);
+        }, 200);
+      })
+      .catch(err => console.warn('Email-Link-Auth:', err));
+  });
+
+  window._saveNewPassword = async function() {
+    const pw = (document.getElementById('_newpw_input')?.value || '').trim();
+    const pw2 = (document.getElementById('_newpw_confirm')?.value || '').trim();
+    const statusEl = document.getElementById('_newpw_status');
+    if (pw.length < 8) { statusEl.textContent = 'Mindestens 8 Zeichen.'; return; }
+    if (pw !== pw2) { statusEl.textContent = 'Passwörter stimmen nicht überein.'; return; }
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+    const hash = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    localStorage.setItem('hf_custom_pw_hash', hash);
+    statusEl.style.color = '#5cbb8a'; statusEl.textContent = 'Passwort gespeichert!';
+    setTimeout(() => { _revealApp(); }, 1200);
+  };
+
   // ── Firestore: Chats laden ─────────────────────────
-  async function _loadFromFirestore(uid) {
+  window._loadFromFirestore = async function _loadFromFirestore(uid) {
     try {
       const doc = await _db.collection('users').doc(uid).get();
       if (doc.exists) {
@@ -223,7 +302,7 @@
   }
 
   // ── Firestore: Echtzeit-Sync (andere Geräte) ───────
-  function _startRealtimeSync(uid) {
+  window._startRealtimeSync = function _startRealtimeSync(uid) {
     _db.collection('users').doc(uid).onSnapshot(doc => {
       if (!doc.exists || !window.state) return;
       const data = doc.data();
@@ -2130,8 +2209,32 @@ body {
 .stat-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-bright)); border-radius: 4px; transition: width 0.6s ease; }
 
 /* ═══════════════════════════════════════════════
+   BTN-PRIMARY
+═══════════════════════════════════════════════ */
+.btn-primary {
+  padding: 10px 18px; border-radius: var(--radius-sm); border: none;
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  background: linear-gradient(135deg, var(--accent), #a07830);
+  color: #0c0d0f; font-family: var(--font-sans);
+  transition: opacity .2s, transform .15s, box-shadow .2s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-primary:hover { opacity: .88; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(212,172,100,0.3); }
+.btn-primary:active { transform: translateY(0); }
+
+/* ═══════════════════════════════════════════════
    ACCOUNT MODAL
 ═══════════════════════════════════════════════ */
+.profile-pic-wrapper {
+  position: relative; width: 68px; height: 68px; cursor: pointer; flex-shrink: 0;
+}
+.profile-pic-wrapper img { width: 68px; height: 68px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-accent); display: block; }
+.profile-pic-overlay {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .2s; color: white; font-size: 11px; text-align: center;
+}
+.profile-pic-wrapper:hover .profile-pic-overlay { opacity: 1; }
 .acct-section {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
@@ -2230,6 +2333,26 @@ body {
       Weiter →
     </button>
     <div id="_auth_err" style="color:#e05c5c;font-size:12.5px;text-align:center;min-height:18px;"></div>
+    <button onclick="_showForgotPassword()" style="background:none;border:none;color:#6b5e4e;font-size:11.5px;cursor:pointer;font-family:inherit;padding:0;margin-top:4px;text-decoration:underline;text-underline-offset:2px;transition:color .2s;" onmouseenter="this.style.color='#d4ac64'" onmouseleave="this.style.color='#6b5e4e'">Passwort vergessen?</button>
+  </div>
+
+  <!-- STUFE RESET: Passwort zurücksetzen -->
+  <div id="_auth_reset" style="display:none;flex-direction:column;gap:10px;width:min(320px,90vw);transition:opacity .3s,transform .3s;">
+    <div style="font-size:12px;color:#9b9080;text-align:center;margin-bottom:2px;">Passwort zurücksetzen</div>
+    <div style="font-size:12.5px;color:#c8b89a;text-align:center;line-height:1.5;">Gib deine E-Mail-Adresse ein. Du erhältst einen Link zum Zurücksetzen.</div>
+    <input id="_reset_email" type="email" placeholder="deine@email.de" style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.25);background:rgba(255,255,255,0.04);color:#f0ebe0;font-size:15px;outline:none;transition:border-color .2s;font-family:inherit;" onfocus="this.style.borderColor='rgba(212,172,100,0.65)'" onblur="this.style.borderColor='rgba(212,172,100,0.25)'" onkeydown="if(event.key==='Enter')_sendResetLink()">
+    <button onclick="_sendResetLink()" style="padding:14px;border-radius:12px;border:none;cursor:pointer;font-size:15px;font-weight:600;background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f;font-family:inherit;transition:opacity .2s;">Link senden</button>
+    <div id="_reset_status" style="font-size:12.5px;text-align:center;min-height:18px;"></div>
+    <button onclick="_showStep1()" style="background:none;border:none;color:#6b5e4e;font-size:11.5px;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:2px;">Zurück zum Login</button>
+  </div>
+
+  <!-- STUFE NEU-PASSWORT: Nach Email-Link -->
+  <div id="_auth_newpw" style="display:none;flex-direction:column;gap:10px;width:min(320px,90vw);">
+    <div style="font-size:12px;color:#9b9080;text-align:center;">Neues Passwort festlegen</div>
+    <input id="_newpw_input" type="password" placeholder="Neues Passwort (min. 8 Zeichen)" style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.25);background:rgba(255,255,255,0.04);color:#f0ebe0;font-size:15px;outline:none;transition:border-color .2s;font-family:inherit;" onfocus="this.style.borderColor='rgba(212,172,100,0.65)'" onblur="this.style.borderColor='rgba(212,172,100,0.25)'">
+    <input id="_newpw_confirm" type="password" placeholder="Passwort bestätigen" style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.25);background:rgba(255,255,255,0.04);color:#f0ebe0;font-size:15px;outline:none;transition:border-color .2s;font-family:inherit;" onfocus="this.style.borderColor='rgba(212,172,100,0.65)'" onblur="this.style.borderColor='rgba(212,172,100,0.25)'" onkeydown="if(event.key==='Enter')_saveNewPassword()">
+    <button onclick="_saveNewPassword()" style="padding:14px;border-radius:12px;border:none;cursor:pointer;font-size:15px;font-weight:600;background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f;font-family:inherit;transition:opacity .2s;">Passwort speichern</button>
+    <div id="_newpw_status" style="font-size:12.5px;text-align:center;min-height:18px;color:#e05c5c;"></div>
   </div>
 
   <!-- STUFE 2: Google Sign-In (versteckt bis Passwort korrekt) -->
@@ -2431,7 +2554,7 @@ body {
   <div id="chat-area">
     <div id="welcome-screen">
       <div class="welcome-ornament">بِسْمِ اللهِ</div>
-      <div class="welcome-title">Hanafi Fiqh KI-Assistent</div>
+      <div class="welcome-title ai-display-name">Hanafi Fiqh KI-Assistent</div>
       <p class="welcome-sub">Fragen zur hanafitischen Rechtslehre — beantwortet auf Basis klassischer Quellen wie Al-Hidayah, Radd al-Muhtar und weiterer anerkannter Werke.</p>
       <p style="margin-top:-14px;margin-bottom:24px;font-size:11px;color:var(--danger);letter-spacing:0.3px;">⛔ Zugang rechtlich verboten — Nur für autorisierte Inhaber</p>
       <div class="welcome-divider">
@@ -3301,8 +3424,11 @@ function renderMessages() {
 
 function buildMessageHtml(msg) {
   const isUser = msg.role === 'user';
+  const customPic = localStorage.getItem('hf_profile_pic');
   const avatar = isUser
-    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+    ? (customPic
+        ? `<img src="${customPic}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" class="user-avatar-img">`
+        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`)
     : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   const roleLabel = isUser ? 'Du' : 'Fiqh-Assistent';
   const text = formatText(msg.content);
@@ -4633,6 +4759,23 @@ function initApp() {
       if (btn) btn.style.display = 'flex';
     }
   }, 500);
+
+  // KI-Namen anwenden
+  const savedAIName = localStorage.getItem('hf_ai_name');
+  if (savedAIName) {
+    const wt = document.querySelector('.welcome-title');
+    if (wt) wt.textContent = savedAIName;
+    document.querySelectorAll('.ai-display-name').forEach(el => el.textContent = savedAIName);
+  }
+
+  // Profilbild in Topbar anwenden falls vorhanden
+  const savedPic = localStorage.getItem('hf_profile_pic');
+  if (savedPic) {
+    setTimeout(() => {
+      const tbImg = document.querySelector('#_tb_user img');
+      if (tbImg) tbImg.src = savedPic;
+    }, 600);
+  }
   const themeBtn = document.getElementById('theme-btn');
   if (themeBtn) themeBtn.innerHTML = savedTheme === 'dark'
     ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
@@ -5841,25 +5984,34 @@ function closeAccountModal() {
 
 function renderAccountModal() {
   const user = window._fbUser;
+
+  // Profilbild
+  const imgEl = document.getElementById('acct-profile-img');
+  if (imgEl) {
+    const custom = localStorage.getItem('hf_profile_pic');
+    imgEl.src = custom || user?.photoURL || '';
+    if (!imgEl.src) imgEl.style.background = 'var(--bg-tertiary)';
+  }
+
+  // Profil-Info
   const profileSection = document.getElementById('acct-profile-section');
   if (profileSection) {
     if (user) {
       profileSection.innerHTML = `
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
-          <img src="${user.photoURL||''}" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--border-accent);" onerror="this.style.display='none'">
-          <div>
-            <div style="font-weight:600;font-size:15px;color:var(--text-primary)">${user.displayName||'Unbekannt'}</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${user.email}</div>
-            <div style="font-size:11px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:4px">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              Verbunden mit Google
-            </div>
-          </div>
+        <div style="font-weight:600;font-size:15px;color:var(--text-primary)">${user.displayName||'Unbekannt'}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${user.email}</div>
+        <div style="font-size:11px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:4px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Mit Google verbunden
         </div>`;
     } else {
-      profileSection.innerHTML = `<div style="color:var(--text-muted);font-size:13px">Kein Google-Konto verbunden — nur lokaler Modus.</div>`;
+      profileSection.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Kein Google-Konto verbunden</div>`;
     }
   }
+
+  // KI-Name laden
+  const aiNameInput = document.getElementById('acct-ai-name');
+  if (aiNameInput) aiNameInput.value = localStorage.getItem('hf_ai_name') || '';
 
   // Benachrichtigungs-Email laden
   const notifInput = document.getElementById('acct-notif-email');
@@ -5870,6 +6022,88 @@ function renderAccountModal() {
   const totalMsgs = chats.reduce((s,c)=>s+(c.messages?.length||0),0);
   const statsEl = document.getElementById('acct-stats');
   if (statsEl) statsEl.textContent = `${chats.length} Chats · ${totalMsgs} Nachrichten`;
+}
+
+function uploadProfilePic(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    // Auf Canvas skalieren (max 150x150)
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = Math.min(img.width, img.height);
+      canvas.width = 150; canvas.height = 150;
+      const ctx = canvas.getContext('2d');
+      const sx = (img.width - size) / 2, sy = (img.height - size) / 2;
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, 150, 150);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      localStorage.setItem('hf_profile_pic', dataUrl);
+      // Sofort anzeigen
+      const imgEl = document.getElementById('acct-profile-img');
+      if (imgEl) imgEl.src = dataUrl;
+      // Topbar-Avatar updaten
+      const tbImg = document.querySelector('#_tb_user img');
+      if (tbImg) tbImg.src = dataUrl;
+      // Profilbild in Chat-Avataren aktualisieren
+      document.querySelectorAll('.user-avatar img').forEach(i => i.src = dataUrl);
+      showToast('Profilbild gespeichert', 'success');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+async function validateAndSaveAIName() {
+  const name = (document.getElementById('acct-ai-name')?.value || '').trim();
+  const statusEl = document.getElementById('acct-ainame-status');
+  if (!name) { statusEl.style.color='var(--danger)'; statusEl.textContent='Bitte einen Namen eingeben.'; return; }
+
+  const apiKey = localStorage.getItem('hf_geminiKey');
+  if (!apiKey) {
+    // Kein API-Key → direkt speichern (keine Prüfung möglich)
+    _applyAIName(name);
+    statusEl.style.color='var(--success)'; statusEl.textContent='Gespeichert (keine KI-Prüfung ohne API-Key).';
+    return;
+  }
+
+  statusEl.style.color='var(--text-muted)'; statusEl.textContent='KI prüft den Namen…';
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `Prüfe ob dieser Name für einen islamischen KI-Assistenten geeignet ist. Der Name darf nicht beleidigend, unangemessen oder gegen islamische Werte verstoßen. Name: "${name}". Antworte NUR mit einem der folgenden Formate:\nGEEIGNET\nUNGEEIGNET: [kurzer Grund auf Deutsch]` }] }],
+        generationConfig: { maxOutputTokens: 60, temperature: 0.1 }
+      })
+    });
+    const data = await res.json();
+    const answer = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    if (answer.startsWith('GEEIGNET')) {
+      _applyAIName(name);
+      statusEl.style.color='var(--success)'; statusEl.textContent='Name genehmigt und gespeichert!';
+    } else {
+      const reason = answer.replace('UNGEEIGNET:', '').trim() || 'Nicht geeignet.';
+      statusEl.style.color='var(--danger)'; statusEl.textContent='Abgelehnt: ' + reason;
+    }
+  } catch(e) {
+    statusEl.style.color='var(--danger)'; statusEl.textContent='Prüfung fehlgeschlagen: ' + e.message;
+  }
+}
+
+function _applyAIName(name) {
+  localStorage.setItem('hf_ai_name', name);
+  // Überall im UI updaten
+  document.querySelectorAll('.ai-display-name').forEach(el => el.textContent = name);
+  const wt = document.querySelector('.welcome-title');
+  if (wt) wt.textContent = name;
+}
+
+function getAIName() {
+  return localStorage.getItem('hf_ai_name') || 'Hanafi Fiqh KI-Assistent';
 }
 
 function acctChangePassword() {
@@ -5991,8 +6225,31 @@ function acctSignOut() {
       <!-- Profil -->
       <div class="acct-section">
         <div class="acct-section-title">Profil</div>
-        <div id="acct-profile-section"></div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px" id="acct-stats"></div>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div class="profile-pic-wrapper" onclick="document.getElementById('profile-pic-input').click()" title="Profilbild ändern">
+            <img id="acct-profile-img" src="" onerror="this.src=''" style="background:var(--bg-tertiary);">
+            <div class="profile-pic-overlay">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <span style="font-size:9px;margin-top:2px">Ändern</span>
+            </div>
+          </div>
+          <div style="flex:1">
+            <div id="acct-profile-section"></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="acct-stats"></div>
+          </div>
+        </div>
+        <input type="file" id="profile-pic-input" accept="image/*" style="display:none" onchange="uploadProfilePic(this)">
+      </div>
+
+      <!-- KI-Name -->
+      <div class="acct-section">
+        <div class="acct-section-title">KI-Namen anpassen</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Name der KI im Chat. Wird von der KI auf Eignung geprüft.</div>
+        <div style="display:flex;gap:8px;">
+          <input class="form-input" type="text" id="acct-ai-name" placeholder="z.B. Ustadh, Fiqh-Berater…" maxlength="30" style="flex:1">
+          <button class="btn-primary" onclick="validateAndSaveAIName()">Prüfen & Speichern</button>
+        </div>
+        <div id="acct-ainame-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
       </div>
 
       <!-- Passwort ändern -->
