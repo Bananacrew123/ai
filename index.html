@@ -15,18 +15,17 @@
 
   // Firebase Konfiguration (aus Firebase Console kopieren):
   const FIREBASE_CONFIG = {
-apiKey: "AIzaSyBbKB82jpVsjk9PmQdc-mm7w1HN82mnCNI",
-  authDomain: "hanafiki.firebaseapp.com",
-  projectId: "hanafiki",
-  storageBucket: "hanafiki.firebasestorage.app",
-  messagingSenderId: "1095944366920",
-  appId: "1:1095944366920:web:1adcc727032902a31d217d"
+    apiKey:            'AIzaSyBbKB82jpVsjk9PmQdc-mm7w1HN82mnCNI',
+    authDomain:        'hanafiki.firebaseapp.com',
+    projectId:         'hanafiki',
+    storageBucket:     'hanafiki.firebasestorage.app',
+    messagingSenderId: '1095944366920',
+    appId:             '1:1095944366920:web:1adcc727032902a31d217d'
   };
 
   // Erlaubte Google-Emails:
   const ALLOWED_EMAILS = [
     'tanyelekici88@gmail.com',
-    // 'weitere@gmail.com',
   ];
   // ════════════════════════════════════════════════════
 
@@ -127,12 +126,19 @@ apiKey: "AIzaSyBbKB82jpVsjk9PmQdc-mm7w1HN82mnCNI",
     const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
     if (hash === CORRECT_HASH) {
-      const d1=document.getElementById('_dot1'), d2=document.getElementById('_dot2');
-      if(d1) d1.style.background='rgba(255,255,255,0.15)';
-      if(d2) d2.style.background='#d4ac64';
-      const s1=document.getElementById('_auth_step1'), s2=document.getElementById('_auth_step2');
-      if(s1){s1.style.opacity='0';s1.style.transform='translateY(-10px)';setTimeout(()=>s1.style.display='none',300);}
-      if(s2){setTimeout(()=>{s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
+      // Wenn Firebase konfiguriert ist → Google-Login zeigen, sonst direkt öffnen
+      const firebaseReady = _auth && FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('DEIN');
+      if (firebaseReady) {
+        const d1=document.getElementById('_dot1'), d2=document.getElementById('_dot2');
+        if(d1) d1.style.background='rgba(255,255,255,0.15)';
+        if(d2) d2.style.background='#d4ac64';
+        const s1=document.getElementById('_auth_step1'), s2=document.getElementById('_auth_step2');
+        if(s1){s1.style.opacity='0';s1.style.transform='translateY(-10px)';setTimeout(()=>s1.style.display='none',300);}
+        if(s2){setTimeout(()=>{s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
+      } else {
+        // Kein Firebase → direkt in die App
+        _revealApp();
+      }
     } else {
       showError('Falsches Passwort.', input);
     }
