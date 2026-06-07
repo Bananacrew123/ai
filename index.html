@@ -273,6 +273,15 @@
   };
 
   document.addEventListener('DOMContentLoaded', function() {
+    // Firebase SDK ist jetzt geladen — initialisieren falls noch nicht geschehen
+    if (!_auth) {
+      try {
+        if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+        _auth = firebase.auth();
+        _db   = firebase.firestore();
+      } catch(e) { console.warn('Firebase init (DOMContentLoaded):', e); }
+    }
+
     const overlay = document.getElementById('_auth_overlay');
     if (!overlay) return;
     overlay.style.display = 'flex';
