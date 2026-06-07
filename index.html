@@ -80,43 +80,99 @@
   }
 
   // ── STUFE 2: Firebase Google Sign-In ───────────────
-  window._startGoogleSignIn = function() {
-    if (!_auth) { showError('Firebase nicht konfiguriert.'); return; }
-    const btn = document.getElementById('_google_signin_btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Anmelden…'; }
-    const provider = new firebase.auth.GoogleAuthProvider();
-    _auth.signInWithPopup(provider).then(result => {
-      const user  = result.user;
-      const email = user.email.toLowerCase();
-      if (ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)) {
-        window._fbUser = user; window._fbDb = _db;
-        const s2 = document.getElementById('_auth_step2');
-        if (s2) s2.innerHTML = `
-          <div style="text-align:center;animation:fadeInUp .4s ease both">
-            <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
-            <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
-            <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
-            <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
-          </div>`;
-        _showTopbarUser(user);
-        _loadFromFirestore(user.uid).then(() => {
-          setTimeout(_revealApp, 1000);
-          setTimeout(() => _startRealtimeSync(user.uid), 1500);
-        });
+  function _showStep2Error(msg) {
+    let e = document.getElementById('_auth_step2_err');
+    if (!e) {
+      e = document.createElement('div');
+      e.id = '_auth_step2_err';
+      e.style.cssText = 'color:#e05c5c;font-size:12.5px;text-align:center;min-height:18px;';
+      const s2 = document.getElementById('_auth_step2');
+      if (s2) s2.appendChild(e);
+    }
+    e.textContent = msg;
+    setTimeout(() => { if(e) e.textContent = ''; }, 5000);
+  }
+
+  function _processGoogleUser(user) {
+    const email = user.email.toLowerCase();
+    if (ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)) {
+      window._fbUser = user; window._fbDb = _db;
+      const s2 = document.getElementById('_auth_step2');
+      if (s2) s2.innerHTML = `
+        <div style="text-align:center;animation:fadeInUp .4s ease both">
+          <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
+          <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
+          <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
+          <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
+        </div>`;
+      _showTopbarUser(user);
+      _loadFromFirestore(user.uid).then(() => {
+        setTimeout(_revealApp, 1000);
+        setTimeout(() => _startRealtimeSync(user.uid), 1500);
+      });
+    } else {
+      _auth.signOut();
+      const btn = document.getElementById('_google_signin_btn');
+      if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
+      _showStep2Error('Dieser Account ist nicht berechtigt: ' + email);
+    }
+  }
+
+  // Redirect-Ergebnis beim Seitenstart prüfen
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!_auth) return;
+    if (sessionStorage.getItem('hf_google_redirect') !== '1') return;
+    sessionStorage.removeItem('hf_google_redirect');
+    // Step 1 verstecken, Step 2 zeigen
+    setTimeout(() => {
+      const s1 = document.getElementById('_auth_step1');
+      const s2 = document.getElementById('_auth_step2');
+      if (s1) s1.style.display = 'none';
+      if (s2) { s2.style.display='flex'; s2.style.opacity='1'; s2.style.transform='translateY(0)'; }
+      // Ladetext anzeigen
+      const btn = document.getElementById('_google_signin_btn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span style="opacity:.7">Google-Anmeldung wird verarbeitet…</span>'; }
+    }, 100);
+    _auth.getRedirectResult().then(result => {
+      if (result && result.user) {
+        _processGoogleUser(result.user);
       } else {
-        _auth.signOut();
+        // Kein Ergebnis — Step 2 wieder normal zeigen
+        const btn = document.getElementById('_google_signin_btn');
         if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
-        showError(`❌ ${email} ist nicht berechtigt.`);
       }
     }).catch(err => {
+      const btn = document.getElementById('_google_signin_btn');
       if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
-      showError('Fehler: ' + (err.message || err.code));
+      setTimeout(() => _showStep2Error('Fehler: ' + (err.message || err.code)), 200);
     });
+  });
+
+  window._startGoogleSignIn = function() {
+    if (!_auth) { _showStep2Error('Firebase nicht konfiguriert.'); return; }
+    const btn = document.getElementById('_google_signin_btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span style="opacity:.7">Verbinde…</span>'; }
+    const provider = new firebase.auth.GoogleAuthProvider();
+    _auth.signInWithPopup(provider)
+      .then(result => _processGoogleUser(result.user))
+      .catch(err => {
+        if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+          // Popup blockiert → Redirect verwenden
+          sessionStorage.setItem('hf_google_redirect', '1');
+          _auth.signInWithRedirect(provider);
+        } else {
+          if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
+          _showStep2Error('Fehler: ' + (err.message || err.code));
+        }
+      });
   };
 
   function _googleBtnHTML() {
     return `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Mit Google anmelden`;
   }
+
+  // Standard-Hash für Passwortvergleich global verfügbar machen (für Account-Modal)
+  window._DEFAULT_PW_HASH = CORRECT_HASH;
 
   // ── STUFE 1: Passwort ─────────────────────────────
   window._checkPassword = async function() {
@@ -125,7 +181,9 @@
     if (!pw) return;
     const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    if (hash === CORRECT_HASH) {
+    // Erst custom Hash aus localStorage prüfen, dann Standard-Hash
+    const validHash = localStorage.getItem('hf_custom_pw_hash') || CORRECT_HASH;
+    if (hash === validHash) {
       // Wenn Firebase konfiguriert ist → Google-Login zeigen, sonst direkt öffnen
       const firebaseReady = _auth && FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('DEIN');
       if (firebaseReady) {
@@ -191,15 +249,12 @@
     if (!topbar || document.getElementById('_tb_user')) return;
     const el = document.createElement('div');
     el.id = '_tb_user';
-    el.style.cssText = 'display:flex;align-items:center;gap:7px;margin-left:auto;cursor:pointer;flex-shrink:0;';
-    el.title = 'Eingeloggt als ' + user.email + ' — Klicken zum Ausloggen';
-    el.innerHTML = `<img src="${user.photoURL||''}" style="width:28px;height:28px;border-radius:50%;border:1.5px solid rgba(212,172,100,0.5);" onerror="this.style.display='none'">`;
-    el.onclick = () => {
-      if(confirm(`Ausloggen?\n(${user.email})`)) {
-        sessionStorage.removeItem('hf_fb_ok');
-        _auth.signOut().then(()=>location.reload());
-      }
-    };
+    el.style.cssText = 'display:flex;align-items:center;gap:7px;margin-left:8px;cursor:pointer;flex-shrink:0;';
+    el.title = user.email + ' — Konto verwalten';
+    el.innerHTML = `<img src="${user.photoURL||''}" style="width:28px;height:28px;border-radius:50%;border:1.5px solid rgba(212,172,100,0.5);transition:border-color .2s;" onerror="this.style.display='none'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted)"><polyline points="6 9 12 15 18 9"/></svg>`;
+    el.onmouseenter = () => el.querySelector('img') && (el.querySelector('img').style.borderColor='rgba(212,172,100,0.9)');
+    el.onmouseleave = () => el.querySelector('img') && (el.querySelector('img').style.borderColor='rgba(212,172,100,0.5)');
+    el.onclick = () => { if(typeof openAccountModal==='function') openAccountModal(); };
     topbar.appendChild(el);
   }
 
@@ -2064,6 +2119,39 @@ body {
 .stat-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; }
 .stat-bar-track { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; }
 .stat-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-bright)); border-radius: 4px; transition: width 0.6s ease; }
+
+/* ═══════════════════════════════════════════════
+   ACCOUNT MODAL
+═══════════════════════════════════════════════ */
+.acct-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.acct-section:last-child { border-bottom: none; }
+.acct-section-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.acct-action-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 14px;
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-secondary);
+  font-size: 13px; cursor: pointer; text-align: left;
+  transition: all var(--transition); font-family: var(--font-sans);
+}
+.acct-action-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-light); }
+.acct-action-btn.danger { color: var(--danger); }
+.acct-action-btn.danger:hover { background: rgba(224,92,92,0.08); border-color: rgba(224,92,92,0.35); }
+.form-input {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-tertiary);
+  color: var(--text-primary); font-size: 13px; font-family: var(--font-sans);
+  outline: none; transition: border-color var(--transition), box-shadow var(--transition);
+  box-sizing: border-box;
+}
+.form-input:focus { border-color: var(--border-accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
 /* ═══════════════════════════════════════════════
    FEATURE: PRINT / PDF
@@ -5670,6 +5758,237 @@ function initKeyboardShortcuts() {
   });
 }
 
+
+
+// ═══════════════════════════════════════════════
+//  ACCOUNT MANAGEMENT MODAL
+// ═══════════════════════════════════════════════
+
+function openAccountModal() {
+  const modal = document.getElementById('account-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderAccountModal();
+}
+
+function closeAccountModal() {
+  document.getElementById('account-modal')?.classList.add('hidden');
+}
+
+function renderAccountModal() {
+  const user = window._fbUser;
+  const profileSection = document.getElementById('acct-profile-section');
+  if (profileSection) {
+    if (user) {
+      profileSection.innerHTML = `
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
+          <img src="${user.photoURL||''}" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--border-accent);" onerror="this.style.display='none'">
+          <div>
+            <div style="font-weight:600;font-size:15px;color:var(--text-primary)">${user.displayName||'Unbekannt'}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${user.email}</div>
+            <div style="font-size:11px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:4px">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Verbunden mit Google
+            </div>
+          </div>
+        </div>`;
+    } else {
+      profileSection.innerHTML = `<div style="color:var(--text-muted);font-size:13px">Kein Google-Konto verbunden — nur lokaler Modus.</div>`;
+    }
+  }
+
+  // Benachrichtigungs-Email laden
+  const notifInput = document.getElementById('acct-notif-email');
+  if (notifInput) notifInput.value = localStorage.getItem('hf_notif_email') || (user?.email || '');
+
+  // Statistik
+  const chats = JSON.parse(localStorage.getItem('hf_chats') || '[]');
+  const totalMsgs = chats.reduce((s,c)=>s+(c.messages?.length||0),0);
+  const statsEl = document.getElementById('acct-stats');
+  if (statsEl) statsEl.textContent = `${chats.length} Chats · ${totalMsgs} Nachrichten`;
+}
+
+function acctChangePassword() {
+  const oldPw = document.getElementById('acct-old-pw').value.trim();
+  const newPw = document.getElementById('acct-new-pw').value.trim();
+  const confirm = document.getElementById('acct-confirm-pw').value.trim();
+  const statusEl = document.getElementById('acct-pw-status');
+
+  if (!oldPw || !newPw || !confirm) { statusEl.textContent = 'Alle Felder ausfüllen.'; statusEl.style.color='var(--danger)'; return; }
+  if (newPw !== confirm) { statusEl.textContent = 'Passwörter stimmen nicht überein.'; statusEl.style.color='var(--danger)'; return; }
+  if (newPw.length < 8) { statusEl.textContent = 'Mindestens 8 Zeichen.'; statusEl.style.color='var(--danger)'; return; }
+
+  // Altes Passwort prüfen
+  crypto.subtle.digest('SHA-256', new TextEncoder().encode(oldPw)).then(buf => {
+    const oldHash = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    const storedHash = localStorage.getItem('hf_custom_pw_hash') || window._DEFAULT_PW_HASH;
+    if (oldHash !== storedHash) {
+      statusEl.textContent = 'Altes Passwort falsch.';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
+    // Neues Passwort hashen und speichern
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPw)).then(buf2 => {
+      const newHash = Array.from(new Uint8Array(buf2)).map(b=>b.toString(16).padStart(2,'0')).join('');
+      localStorage.setItem('hf_custom_pw_hash', newHash);
+      document.getElementById('acct-old-pw').value = '';
+      document.getElementById('acct-new-pw').value = '';
+      document.getElementById('acct-confirm-pw').value = '';
+      statusEl.textContent = 'Passwort erfolgreich geändert!';
+      statusEl.style.color = 'var(--success)';
+      setTimeout(() => statusEl.textContent = '', 3000);
+    });
+  });
+}
+
+function acctSaveNotifEmail() {
+  const email = document.getElementById('acct-notif-email').value.trim();
+  const statusEl = document.getElementById('acct-notif-status');
+  if (!email || !email.includes('@')) { statusEl.textContent = 'Ungültige E-Mail.'; statusEl.style.color='var(--danger)'; return; }
+  localStorage.setItem('hf_notif_email', email);
+  if (window._fbUser && window._fbDb) {
+    window._fbDb.collection('users').doc(window._fbUser.uid).set({ notifEmail: email }, { merge: true });
+  }
+  statusEl.textContent = 'Gespeichert!';
+  statusEl.style.color = 'var(--success)';
+  setTimeout(() => statusEl.textContent = '', 3000);
+}
+
+function acctExportData() {
+  const chats = JSON.parse(localStorage.getItem('hf_chats') || '[]');
+  const notes = JSON.parse(localStorage.getItem('hf_notes') || '[]');
+  const favs  = JSON.parse(localStorage.getItem('hf_favorites') || '[]');
+  const data  = { exportDate: new Date().toISOString(), chats, notes, favorites: favs };
+  const blob  = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a     = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `hanafiki-export-${Date.now()}.json` });
+  a.click(); URL.revokeObjectURL(a.href);
+  showToast('Daten exportiert', 'success');
+}
+
+function acctDeleteAllChats() {
+  if (!confirm('Alle Chats unwiderruflich löschen?')) return;
+  localStorage.removeItem('hf_chats');
+  localStorage.removeItem('hf_activeChat');
+  if (window.state) { window.state.chats = []; window.state.activeChatId = null; }
+  if (window._fbUser && window._fbDb) {
+    window._fbDb.collection('users').doc(window._fbUser.uid).set({ chats: [], activeChat: '' }, { merge: true });
+  }
+  if (typeof renderChatList === 'function') { renderChatList(); renderMessages(); }
+  closeAccountModal();
+  showToast('Alle Chats gelöscht', 'success');
+}
+
+function acctDeleteAccount() {
+  if (!confirm('Konto und alle Daten löschen? Diese Aktion kann nicht rückgängig gemacht werden!')) return;
+  if (!confirm('Wirklich? Alle Chats, Notizen und Einstellungen werden gelöscht.')) return;
+
+  // Lokale Daten löschen
+  ['hf_chats','hf_activeChat','hf_notes','hf_favorites','hf_custom_pw_hash','hf_notif_email'].forEach(k => localStorage.removeItem(k));
+
+  // Firestore-Daten löschen
+  if (window._fbUser && window._fbDb) {
+    window._fbDb.collection('users').doc(window._fbUser.uid).delete().catch(()=>{});
+    window._fbUser.delete().catch(()=>{});
+  }
+
+  sessionStorage.clear();
+  showToast('Konto gelöscht — Seite wird neu geladen…', 'success');
+  setTimeout(() => location.reload(), 2000);
+}
+
+function acctSignOut() {
+  if (!confirm('Wirklich abmelden?')) return;
+  sessionStorage.removeItem('hf_fb_ok');
+  if (window._fbUser && firebase?.auth) {
+    firebase.auth().signOut().then(() => location.reload());
+  } else {
+    location.reload();
+  }
+}
+
 </script>
+
+<!-- ═══════════════════════════════════════════
+     ACCOUNT MODAL
+═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="account-modal" onclick="if(event.target===this)closeAccountModal()">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <div class="modal-title-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        Konto verwalten
+      </div>
+      <button class="modal-close" onclick="closeAccountModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;overflow-y:auto;max-height:70vh;">
+
+      <!-- Profil -->
+      <div class="acct-section">
+        <div class="acct-section-title">Profil</div>
+        <div id="acct-profile-section"></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px" id="acct-stats"></div>
+      </div>
+
+      <!-- Passwort ändern -->
+      <div class="acct-section">
+        <div class="acct-section-title">App-Passwort ändern</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <input class="form-input" type="password" id="acct-old-pw" placeholder="Aktuelles Passwort">
+          <input class="form-input" type="password" id="acct-new-pw" placeholder="Neues Passwort (min. 8 Zeichen)">
+          <input class="form-input" type="password" id="acct-confirm-pw" placeholder="Neues Passwort bestätigen">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn-primary" onclick="acctChangePassword()" style="flex:1">Passwort ändern</button>
+          </div>
+          <div id="acct-pw-status" style="font-size:12px;min-height:16px;"></div>
+        </div>
+      </div>
+
+      <!-- Benachrichtigungs-E-Mail -->
+      <div class="acct-section">
+        <div class="acct-section-title">Benachrichtigungs-E-Mail</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">E-Mail-Adresse für Benachrichtigungen speichern.</div>
+        <div style="display:flex;gap:8px;">
+          <input class="form-input" type="email" id="acct-notif-email" placeholder="deine@email.de" style="flex:1">
+          <button class="btn-primary" onclick="acctSaveNotifEmail()">Speichern</button>
+        </div>
+        <div id="acct-notif-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
+      </div>
+
+      <!-- Daten -->
+      <div class="acct-section">
+        <div class="acct-section-title">Meine Daten</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="acct-action-btn" onclick="acctExportData()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Alle Daten exportieren (JSON)
+          </button>
+          <button class="acct-action-btn danger" onclick="acctDeleteAllChats()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Alle Chats löschen
+          </button>
+        </div>
+      </div>
+
+      <!-- Konto -->
+      <div class="acct-section">
+        <div class="acct-section-title">Konto</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="acct-action-btn" onclick="acctSignOut()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Abmelden
+          </button>
+          <button class="acct-action-btn danger" onclick="acctDeleteAccount()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Konto & alle Daten löschen
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
