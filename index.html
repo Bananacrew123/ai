@@ -9,29 +9,59 @@
 ════════════════════════════════════════════════════ */
 (function(){
 
-  // ── KONFIGURATION ─────────────────────────────────
+  // ══ KONFIGURATION — hier anpassen ══════════════════
   const CORRECT_HASH = '2bf745f187ffcc0eb8c3ed912c0ee580554090517b2da6d15e2cc5400c3e5e62';
-  // Passwort-Hash ändern: https://emn178.github.io/online-tools/sha256.html
+  // Passwort-Hash: https://emn178.github.io/online-tools/sha256.html
 
-  const GOOGLE_CLIENT_ID = '620812694360-hkpvgr65tk9fubba0hqt2e4bvdjqj0fh.apps.googleusercontent.com';
-  // Google Client ID eintragen — Anleitung: siehe unten
+  // Firebase Konfiguration (aus Firebase Console kopieren):
+  const FIREBASE_CONFIG = {
+    apiKey:            'DEIN_API_KEY',
+    authDomain:        'DEIN_PROJEKT.firebaseapp.com',
+    projectId:         'DEIN_PROJEKT_ID',
+    storageBucket:     'DEIN_PROJEKT.appspot.com',
+    messagingSenderId: 'DEINE_SENDER_ID',
+    appId:             'DEINE_APP_ID'
+  };
 
+  // Erlaubte Google-Emails:
   const ALLOWED_EMAILS = [
-    // Hier deine erlaubten Google-Emails eintragen:
-    'tanyelekici88@gmail.com',
-    // 'freund@gmail.com',
+    'beispiel@gmail.com',
+    // 'weitere@gmail.com',
   ];
-  // ──────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════
 
- const SESSION_KEY = 'hf_auth_ok';
-  if (sessionStorage.getItem(SESSION_KEY) === '1') return;
+  // Firebase initialisieren
+  let _auth, _db;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    _auth = firebase.auth();
+    _db   = firebase.firestore();
+  } catch(e) { console.warn('Firebase:', e); }
 
-  function showApp() {
+  // Bereits eingeloggt? Auth-State prüfen
+  const SESSION_KEY = 'hf_fb_ok';
+  if (sessionStorage.getItem(SESSION_KEY) === '1') {
+    document.addEventListener('DOMContentLoaded', () => {
+      _auth?.onAuthStateChanged(user => {
+        if (user && ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(user.email.toLowerCase())) {
+          window._fbUser = user; window._fbDb = _db;
+          _showTopbarUser(user);
+          _loadFromFirestore(user.uid).then(() => {
+            _revealApp();
+            setTimeout(() => _startRealtimeSync(user.uid), 500);
+          });
+        } else { sessionStorage.removeItem(SESSION_KEY); location.reload(); }
+      });
+    });
+    return;
+  }
+
+  function _revealApp() {
     sessionStorage.setItem(SESSION_KEY, '1');
     const overlay = document.getElementById('_auth_overlay');
     if (overlay) {
       overlay.style.opacity = '0';
-      overlay.style.transform = 'scale(1.03)';
+      overlay.style.transform = 'scale(1.02)';
       setTimeout(() => {
         overlay.remove();
         Array.from(document.body.children).forEach(el => el.style.visibility = '');
@@ -42,83 +72,144 @@
 
   function showError(msg, inputEl) {
     const err = document.getElementById('_auth_err');
-    if (err) { err.textContent = msg; setTimeout(() => err.textContent = '', 3000); }
+    if (err) { err.textContent = msg; setTimeout(() => err.textContent = '', 3500); }
     if (inputEl) {
-      inputEl.value = '';
-      inputEl.focus();
+      inputEl.value = ''; inputEl.focus();
       inputEl.style.borderColor = '#e05c5c';
       setTimeout(() => inputEl.style.borderColor = '', 2500);
     }
   }
 
-  // ── STUFE 2: Google Sign-In ────────────────────────
-  window._onGoogleSignIn = function(response) {
-    try {
-      // JWT payload dekodieren (kein Verify nötig — wir prüfen nur Email)
-      const payload = JSON.parse(atob(response.credential.split('.')[1]));
-      const email   = (payload.email || '').toLowerCase().trim();
-      const allowed = ALLOWED_EMAILS.map(e => e.toLowerCase().trim());
-
-      if (allowed.includes(email)) {
-        // Erfolg — Name + Avatar kurz anzeigen
-        const step2 = document.getElementById('_auth_step2');
-        if (step2) {
-          step2.innerHTML = `
-            <div style="text-align:center;animation:fadeInUp .4s ease both">
-              <img src="${payload.picture}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;">
-              <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${payload.name}</div>
-              <div style="color:#9b9080;font-size:12px;margin:4px 0 14px;">${email}</div>
-              <div style="color:#5cbb8a;font-size:13px;">✓ Zugang gewährt</div>
-            </div>`;
-        }
-        setTimeout(showApp, 1200);
+  // ── STUFE 2: Firebase Google Sign-In ───────────────
+  window._startGoogleSignIn = function() {
+    if (!_auth) { showError('Firebase nicht konfiguriert.'); return; }
+    const btn = document.getElementById('_google_signin_btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Anmelden…'; }
+    const provider = new firebase.auth.GoogleAuthProvider();
+    _auth.signInWithPopup(provider).then(result => {
+      const user  = result.user;
+      const email = user.email.toLowerCase();
+      if (ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)) {
+        window._fbUser = user; window._fbDb = _db;
+        const s2 = document.getElementById('_auth_step2');
+        if (s2) s2.innerHTML = `
+          <div style="text-align:center;animation:fadeInUp .4s ease both">
+            <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
+            <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
+            <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
+            <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
+          </div>`;
+        _showTopbarUser(user);
+        _loadFromFirestore(user.uid).then(() => {
+          setTimeout(_revealApp, 1000);
+          setTimeout(() => _startRealtimeSync(user.uid), 1500);
+        });
       } else {
+        _auth.signOut();
+        if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
         showError(`❌ ${email} ist nicht berechtigt.`);
-        // Google-Sitzung beenden damit der User nochmal wählen kann
-        if (window.google?.accounts?.id) google.accounts.id.disableAutoSelect();
       }
-    } catch(e) {
-      showError('Google-Anmeldung fehlgeschlagen. Bitte nochmal versuchen.');
-    }
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
+      showError('Fehler: ' + (err.message || err.code));
+    });
   };
+
+  function _googleBtnHTML() {
+    return `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Mit Google anmelden`;
+  }
 
   // ── STUFE 1: Passwort ─────────────────────────────
   window._checkPassword = async function() {
     const input = document.getElementById('_auth_input');
     const pw = (input?.value || '').trim();
     if (!pw) return;
-
     const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-
     if (hash === CORRECT_HASH) {
-      // Zur Stufe 2 wechseln
-      const step1 = document.getElementById('_auth_step1');
-      const step2 = document.getElementById('_auth_step2');
-      // Punkte aktualisieren
-      const d1 = document.getElementById('_dot1'), d2 = document.getElementById('_dot2');
-      if (d1) d1.style.background = 'rgba(255,255,255,0.15)';
-      if (d2) d2.style.background = '#d4ac64';
-      if (step1) { step1.style.opacity='0'; step1.style.transform='translateY(-12px)'; setTimeout(()=>step1.style.display='none',320); }
-      if (step2) { setTimeout(()=>{ step2.style.display='flex'; setTimeout(()=>{ step2.style.opacity='1'; step2.style.transform='translateY(0)'; },20); },340); }
-      // Google GSI initialisieren
-      setTimeout(() => {
-        if (window.google?.accounts?.id) {
-          google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: window._onGoogleSignIn, auto_select: false });
-          google.accounts.id.renderButton(document.getElementById('_google_btn'), {
-            theme: 'filled_black', size: 'large', shape: 'pill',
-            text: 'signin_with', logo_alignment: 'center', width: 280,
-          });
-        } else {
-          document.getElementById('_auth_step2').innerHTML += `<div style="color:#e05c5c;font-size:12px;margin-top:8px;">⚠️ Google Sign-In konnte nicht geladen werden.</div>`;
-        }
-      }, 400);
+      const d1=document.getElementById('_dot1'), d2=document.getElementById('_dot2');
+      if(d1) d1.style.background='rgba(255,255,255,0.15)';
+      if(d2) d2.style.background='#d4ac64';
+      const s1=document.getElementById('_auth_step1'), s2=document.getElementById('_auth_step2');
+      if(s1){s1.style.opacity='0';s1.style.transform='translateY(-10px)';setTimeout(()=>s1.style.display='none',300);}
+      if(s2){setTimeout(()=>{s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
     } else {
-      showError('Falsches Passwort. Versuche es erneut.', input);
+      showError('Falsches Passwort.', input);
     }
   };
+  window._authKey = e => { if(e.key==='Enter') window._checkPassword(); };
 
-  window._authKey = function(e) { if (e.key === 'Enter') window._checkPassword(); };
+  // ── Firestore: Chats laden ─────────────────────────
+  async function _loadFromFirestore(uid) {
+    try {
+      const doc = await _db.collection('users').doc(uid).get();
+      if (doc.exists) {
+        const data = doc.data();
+        if (data.chats?.length) {
+          localStorage.setItem('hf_chats', JSON.stringify(data.chats));
+          if (data.activeChat) localStorage.setItem('hf_activeChat', data.activeChat);
+          if (window.state) {
+            window.state.chats = data.chats;
+            window.state.activeChatId = data.activeChat || data.chats[0]?.id;
+            if (typeof renderChatList==='function') { renderChatList(); renderMessages(); }
+          }
+        }
+      }
+    } catch(e) { console.warn('Firestore load:', e); }
+  }
+
+  // ── Firestore: Echtzeit-Sync (andere Geräte) ───────
+  function _startRealtimeSync(uid) {
+    _db.collection('users').doc(uid).onSnapshot(doc => {
+      if (!doc.exists || !window.state) return;
+      const data = doc.data();
+      if (!data?.chats) return;
+      const remote = JSON.stringify(data.chats);
+      if (JSON.stringify(window.state.chats) !== remote) {
+        window.state.chats = data.chats;
+        if (data.activeChat) window.state.activeChatId = data.activeChat;
+        localStorage.setItem('hf_chats', remote);
+        if (typeof renderChatList==='function') { renderChatList(); renderMessages(); }
+        const t=document.createElement('div');
+        t.style.cssText='position:fixed;bottom:90px;right:16px;background:rgba(92,187,138,0.15);border:1px solid rgba(92,187,138,0.4);color:#5cbb8a;padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;';
+        t.textContent='Sync von anderem Gerät';
+        document.body.appendChild(t);
+        setTimeout(()=>t.remove(),3000);
+      }
+    }, e=>console.warn('Sync:', e));
+  }
+
+  // ── Topbar: User-Avatar anzeigen ───────────────────
+  function _showTopbarUser(user) {
+    const topbar = document.getElementById('topbar');
+    if (!topbar || document.getElementById('_tb_user')) return;
+    const el = document.createElement('div');
+    el.id = '_tb_user';
+    el.style.cssText = 'display:flex;align-items:center;gap:7px;margin-left:auto;cursor:pointer;flex-shrink:0;';
+    el.title = 'Eingeloggt als ' + user.email + ' — Klicken zum Ausloggen';
+    el.innerHTML = `<img src="${user.photoURL||''}" style="width:28px;height:28px;border-radius:50%;border:1.5px solid rgba(212,172,100,0.5);" onerror="this.style.display='none'">`;
+    el.onclick = () => {
+      if(confirm(`Ausloggen?\n(${user.email})`)) {
+        sessionStorage.removeItem('hf_fb_ok');
+        _auth.signOut().then(()=>location.reload());
+      }
+    };
+    topbar.appendChild(el);
+  }
+
+  // ── Globale Sync-Funktion für saveChats() ──────────
+  let _syncTimer;
+  window._syncChatsToFirestore = function() {
+    if (!window._fbUser || !window._fbDb || !window.state) return;
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => {
+      _db.collection('users').doc(window._fbUser.uid).set({
+        chats: window.state.chats,
+        activeChat: window.state.activeChatId || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(e=>console.warn('Sync save:',e));
+    }, 1500);
+  };
 
   document.addEventListener('DOMContentLoaded', function() {
     const overlay = document.getElementById('_auth_overlay');
@@ -132,8 +223,11 @@
   });
 })();
 </script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://accounts.google.com; connect-src https://generativelanguage.googleapis.com https://api.x.ai https://api.anthropic.com https://image.pollinations.ai https://stablehorde.net https://api-inference.huggingface.co http://localhost:* http://127.0.0.1:* https://fonts.googleapis.com https://fonts.gstatic.com https://*.googleapis.com https://accounts.google.com wss://*.firebaseio.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com;">
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://accounts.google.com; connect-src https://generativelanguage.googleapis.com https://api.x.ai https://api.anthropic.com https://image.pollinations.ai https://stablehorde.net https://api-inference.huggingface.co http://localhost:* http://127.0.0.1:* https://fonts.googleapis.com https://fonts.gstatic.com https://*.googleapis.com https://accounts.google.com https://*.firebaseio.com https://firestore.googleapis.com wss://*.firebaseio.com https://api.aladhan.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com https://*.firebaseapp.com;">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="no-referrer">
@@ -1282,89 +1376,6 @@ body {
   border-top-color: #c00; border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 
-/* ═══════════════════════════════════════════════
-   IMAGE GENERATION PANEL (sidebar view)
-═══════════════════════════════════════════════ */
-#image-panel {
-  flex: 1; display: none; flex-direction: column;
-  overflow: hidden; padding: 16px;
-}
-#image-panel.active { display: flex; }
-
-.img-gen-area {
-  flex: 1; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 14px;
-}
-
-.img-gen-header {
-  text-align: center; padding: 20px 0 10px;
-  animation: fadeInDown 0.4s ease;
-}
-.img-gen-title {
-  font-family: var(--font-serif); font-size: 22px; font-weight: 600;
-  color: var(--text-primary); margin-bottom: 6px;
-}
-.img-gen-sub { font-size: 12px; color: var(--text-muted); }
-
-.img-prompt-box {
-  background: var(--bg-secondary); border: 1px solid var(--border-light);
-  border-radius: var(--radius); padding: 14px;
-}
-.img-prompt-input {
-  width: 100%; background: var(--bg-tertiary);
-  border: 1px solid var(--border-light); border-radius: var(--radius-sm);
-  padding: 10px 14px; color: var(--text-primary);
-  font-family: var(--font-sans); font-size: 13px; outline: none;
-  resize: vertical; min-height: 80px; line-height: 1.6;
-  transition: all var(--transition); margin-bottom: 10px;
-}
-.img-prompt-input:focus { border-color: var(--border-accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-.img-gen-btn {
-  width: 100%; padding: 11px;
-  background: linear-gradient(135deg, var(--accent), #8b6014);
-  border: none; border-radius: var(--radius-sm);
-  color: #1a1200; cursor: pointer; font-family: var(--font-sans);
-  font-size: 13px; font-weight: 600; transition: all var(--transition);
-  box-shadow: 0 4px 12px rgba(212,172,100,0.2);
-}
-.img-gen-btn:hover { box-shadow: 0 6px 20px rgba(212,172,100,0.3); transform: translateY(-1px); }
-.img-gen-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-.img-notice {
-  background: var(--accent-dim); border: 1px solid var(--border-accent);
-  border-radius: var(--radius-sm); padding: 12px 14px;
-  font-size: 12px; color: var(--text-secondary); line-height: 1.6;
-}
-.img-notice strong { color: var(--accent); }
-
-.img-history { display: flex; flex-direction: column; gap: 10px; }
-.img-history-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
-  text-transform: uppercase; color: var(--text-muted); padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.img-card {
-  background: var(--bg-secondary); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); overflow: hidden;
-  transition: all var(--transition); animation: fadeInUp 0.4s ease;
-}
-.img-card:hover { border-color: var(--border-light); }
-.img-card-img {
-  width: 100%; aspect-ratio: 1; object-fit: cover;
-  display: block; background: var(--bg-primary);
-}
-.img-card-footer {
-  padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
-}
-.img-card-prompt { font-size: 11px; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.img-download-btn {
-  background: var(--accent-dim); border: 1px solid var(--border-accent);
-  border-radius: 5px; color: var(--accent); cursor: pointer;
-  padding: 4px 10px; font-size: 11px; font-family: var(--font-sans);
-  transition: all var(--transition); flex-shrink: 0; margin-left: 8px;
-  text-decoration: none;
-}
-.img-download-btn:hover { background: var(--accent); color: #1a1200; }
 
 /* ═══════════════════════════════════════════════
    CHAT POLICY MODAL
@@ -1543,11 +1554,6 @@ body {
     border-radius: 20px 20px 0 0 !important;
   }
 
-  /* ── Image Panel (Sidebar) ─────────────────── */
-  .img-panel-inner { padding: 12px; }
-  .img-size-row { flex-wrap: wrap; }
-  .img-size-btn { flex: 1 1 calc(33% - 4px); font-size: 10px; }
-  .img-result-card img { max-height: 240px; }
 
   /* ── Scroll FAB ────────────────────────────── */
   #scroll-fab {
@@ -1889,75 +1895,197 @@ body {
 .chat-emoji-btn:hover,.chat-emoji-btn.selected { background:var(--accent-dim); border-color:var(--border-accent); transform:scale(1.1); }
 
 /* ═══════════════════════════════════════════════
-   IMAGE GENERATION PANEL
+   FEATURE: CHAT TAGS
 ═══════════════════════════════════════════════ */
-#sidebar-image-view {
-  flex:1; display:none; flex-direction:column; overflow:hidden;
+.tag-chip {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px; border-radius: 10px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.3px;
+  margin: 1px 2px;
 }
-.img-panel-inner { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
-.img-panel-header { text-align:center; padding:14px 0 4px; }
-.img-panel-title { font-family:var(--font-serif); font-size:18px; font-weight:600; color:var(--text-primary); margin-bottom:4px; }
-.img-panel-sub { font-size:11px; color:var(--text-muted); }
-.img-provider-row { display:flex; gap:4px; }
-.img-provider-btn {
-  flex:1; padding:6px 8px; background:var(--bg-tertiary); border:1px solid var(--border);
-  border-radius:7px; color:var(--text-muted); font-family:var(--font-sans); font-size:11px;
-  font-weight:600; cursor:pointer; transition:all var(--transition); text-align:center;
+.tag-chip-salah    { background: rgba(92,158,224,0.15); color: #5c9ee0; border: 1px solid rgba(92,158,224,0.3); }
+.tag-chip-zakat    { background: rgba(92,187,138,0.15); color: #5cbb8a; border: 1px solid rgba(92,187,138,0.3); }
+.tag-chip-sawm     { background: rgba(212,172,100,0.15); color: #d4ac64; border: 1px solid rgba(212,172,100,0.3); }
+.tag-chip-hajj     { background: rgba(224,92,92,0.15); color: #e05c5c; border: 1px solid rgba(224,92,92,0.3); }
+.tag-chip-nikah    { background: rgba(168,92,224,0.15); color: #a85ce0; border: 1px solid rgba(168,92,224,0.3); }
+.tag-chip-riba     { background: rgba(224,140,92,0.15); color: #e08c5c; border: 1px solid rgba(224,140,92,0.3); }
+.tag-chip-aqeedah  { background: rgba(92,187,187,0.15); color: #5cbbbb; border: 1px solid rgba(92,187,187,0.3); }
+.tag-chip-siyasa   { background: rgba(187,92,92,0.15); color: #bb5c5c; border: 1px solid rgba(187,92,92,0.3); }
+.tag-chip-tahara   { background: rgba(140,224,92,0.15); color: #8ce05c; border: 1px solid rgba(140,224,92,0.3); }
+.tag-chip-andere   { background: var(--bg-glass); color: var(--text-muted); border: 1px solid var(--border); }
+
+.tag-filter-row {
+  padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 4px;
+  border-bottom: 1px solid var(--border);
 }
-.img-provider-btn.active { background:var(--accent-dim); border-color:var(--border-accent); color:var(--accent); }
-.img-prompt-area {
-  width:100%; background:var(--bg-tertiary); border:1px solid var(--border-light);
-  border-radius:10px; padding:10px 12px; color:var(--text-primary);
-  font-family:var(--font-sans); font-size:12.5px; outline:none; resize:none;
-  min-height:70px; line-height:1.6; transition:all var(--transition);
+.tag-filter-btn {
+  padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  background: none; border: 1px solid var(--border); color: var(--text-muted);
+  font-family: var(--font-sans);
 }
-.img-prompt-area:focus { border-color:var(--border-accent); box-shadow:0 0 0 3px var(--accent-glow); }
-.img-generate-btn {
-  width:100%; padding:10px; background:linear-gradient(135deg,var(--accent),#8b6014);
-  border:none; border-radius:9px; color:#1a1200; cursor:pointer;
-  font-family:var(--font-sans); font-size:13px; font-weight:700;
-  transition:all var(--transition); box-shadow:0 4px 12px rgba(212,172,100,0.2);
-  display:flex; align-items:center; justify-content:center; gap:8px;
+.tag-filter-btn:hover { border-color: var(--border-accent); color: var(--accent); }
+.tag-filter-btn.active { background: var(--accent-dim); border-color: var(--border-accent); color: var(--accent); }
+
+.tag-selector { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag-select-btn {
+  padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-muted);
+  font-family: var(--font-sans);
 }
-.img-generate-btn:hover { box-shadow:0 6px 20px rgba(212,172,100,0.35); transform:translateY(-1px); }
-.img-generate-btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
-.img-size-row { display:flex; gap:6px; }
-.img-size-btn {
-  flex:1; padding:5px; background:var(--bg-tertiary); border:1px solid var(--border);
-  border-radius:6px; color:var(--text-muted); font-family:var(--font-sans); font-size:10.5px;
-  cursor:pointer; transition:all var(--transition); text-align:center;
+.tag-select-btn.active { background: var(--accent-dim); border-color: var(--border-accent); color: var(--accent); }
+
+/* ═══════════════════════════════════════════════
+   FEATURE: FAVORITEN
+═══════════════════════════════════════════════ */
+#sidebar-fav-view {
+  flex: 1; display: none; flex-direction: column; overflow: hidden;
 }
-.img-size-btn.active { background:var(--accent-dim); border-color:var(--border-accent); color:var(--accent); }
-.img-result-grid { display:flex; flex-direction:column; gap:8px; }
-.img-result-card {
-  background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px;
-  overflow:hidden; animation:fadeInUp 0.3s ease;
-  transition:all var(--transition);
+#sidebar-fav-view.active { display: flex; }
+#sidebar-notes-view {
+  flex: 1; display: none; flex-direction: column; overflow: hidden;
 }
-.img-result-card:hover { border-color:var(--border-accent); }
-.img-result-card img { width:100%; display:block; border-radius:0; cursor:zoom-in; }
-.img-result-footer {
-  padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px;
+#sidebar-notes-view.active { display: flex; }
+
+.fav-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
+.fav-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 6px;
+  cursor: pointer; transition: all var(--transition);
+  animation: fadeInUp 0.2s ease both;
 }
-.img-result-prompt { font-size:10.5px; color:var(--text-muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.img-result-btns { display:flex; gap:4px; flex-shrink:0; }
-.img-result-btn {
-  padding:3px 9px; background:var(--accent-dim); border:1px solid var(--border-accent);
-  border-radius:5px; color:var(--accent); cursor:pointer; font-size:10.5px;
-  font-family:var(--font-sans); transition:all var(--transition); text-decoration:none;
+.fav-card:hover { border-color: var(--border-accent); background: var(--bg-hover); }
+.fav-card-excerpt { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 5px; }
+.fav-card-meta { font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+.fav-card-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; transition: color var(--transition); }
+.fav-card-del:hover { color: var(--danger); }
+.fav-card.expanded .fav-card-excerpt { display: block; white-space: pre-wrap; max-height: none; }
+
+/* ═══════════════════════════════════════════════
+   FEATURE: NOTES
+═══════════════════════════════════════════════ */
+.notes-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
+.note-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 6px;
+  cursor: pointer; transition: all var(--transition);
+  animation: fadeInUp 0.2s ease both;
 }
-.img-result-btn:hover { background:var(--accent); color:#1a1200; }
-.img-loading {
-  display:flex; flex-direction:column; align-items:center; gap:12px;
-  padding:24px; color:var(--text-muted); font-size:12px; text-align:center;
+.note-card:hover { border-color: var(--border-accent); }
+.note-card-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
+.note-card-preview { font-size: 11px; color: var(--text-muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-card-date { font-size: 10px; color: var(--text-muted); margin-top: 5px; }
+
+/* ═══════════════════════════════════════════════
+   FEATURE: TTS BUTTON PULSING
+═══════════════════════════════════════════════ */
+@keyframes tts-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(92,187,138,0.4);} 50%{box-shadow:0 0 0 6px rgba(92,187,138,0);} }
+.msg-action-btn.tts-speaking {
+  color: var(--success) !important;
+  border-color: rgba(92,187,138,0.4) !important;
+  animation: tts-pulse 1.2s ease-in-out infinite;
 }
-.img-loading-spinner {
-  width:36px; height:36px; border:3px solid var(--border);
-  border-top-color:var(--accent); border-radius:50%;
-  animation:spin 0.8s linear infinite;
+
+/* ═══════════════════════════════════════════════
+   FEATURE: PRAYER WIDGET DROPDOWN
+═══════════════════════════════════════════════ */
+.more-dropdown-menu {
+  position: absolute; top: 56px; right: 50px;
+  width: 200px; z-index: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+  animation: fadeInDown 0.2s ease;
+  overflow: hidden;
+  padding: 4px 0;
 }
-.img-sd-settings { display:flex; flex-direction:column; gap:8px; }
-.img-sd-label { font-size:10px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
+.more-dropdown-menu.hidden { display: none; }
+.more-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 16px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 13px;
+  text-align: left; transition: background var(--transition), color var(--transition);
+}
+.more-menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+#prayer-dropdown {
+  position: absolute; top: 56px; right: 100px;
+  width: 280px; z-index: 500;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+  animation: fadeInDown 0.2s ease;
+  overflow: hidden;
+}
+#prayer-dropdown.hidden { display: none; }
+.prayer-header {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--accent-glow), transparent);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px; font-weight: 600; color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+}
+.prayer-hijri { font-size: 11px; color: var(--text-muted); padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.prayer-times-list { padding: 8px 0; }
+.prayer-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 16px; transition: background var(--transition);
+}
+.prayer-row:hover { background: var(--bg-hover); }
+.prayer-row.next { background: var(--accent-dim); }
+.prayer-name { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.prayer-row.next .prayer-name { color: var(--accent); font-weight: 600; }
+.prayer-time { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.prayer-next-badge { font-size: 9px; background: var(--accent); color: #1a1200; padding: 1px 5px; border-radius: 6px; font-weight: 700; }
+.prayer-loading { padding: 20px; text-align: center; font-size: 12px; color: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════
+   FEATURE: STATS MODAL
+═══════════════════════════════════════════════ */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.stat-card {
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; text-align: center;
+}
+.stat-number { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--accent); line-height: 1.1; }
+.stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 3px; }
+.stat-bar-row { margin-bottom: 8px; }
+.stat-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; }
+.stat-bar-track { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.stat-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-bright)); border-radius: 4px; transition: width 0.6s ease; }
+
+/* ═══════════════════════════════════════════════
+   FEATURE: PRINT / PDF
+═══════════════════════════════════════════════ */
+@media print {
+  body { background: white !important; color: black !important; display: block !important; overflow: auto !important; }
+  #sidebar, #topbar, #input-area, #scroll-fab, #yt-widget, #mobile-overlay, #toast, #search-overlay, #drag-overlay, .modal-overlay, #prayer-dropdown, #more-dropdown, #_auth_overlay { display: none !important; }
+  #main { overflow: visible !important; }
+  #chat-area { overflow: visible !important; padding: 20px !important; }
+  .message-inner { max-width: 100% !important; }
+  .message-bubble { border: 1px solid #ccc !important; background: white !important; color: black !important; }
+  .user .message-bubble { background: #f0f4ff !important; margin-left: 10%; }
+  .assistant .message-bubble { background: #f9f6f0 !important; margin-right: 10%; }
+  .message-actions, .expand-msg-btn, .message-avatar { display: none !important; }
+  .message-role { color: #666 !important; }
+  .message-role-time { color: #999 !important; }
+  #print-header { display: block !important; padding: 20px; border-bottom: 2px solid #d4ac64; margin-bottom: 20px; }
+  .md-h1, .md-h2, .md-h3 { color: #333 !important; }
+  .md-table th { background: #f0e8d8 !important; color: #333 !important; }
+  .welcome-screen { display: none !important; }
+  .bg-orb { display: none !important; }
+  code { background: #f0f0f0 !important; color: #333 !important; }
+  .code-block { border: 1px solid #ccc !important; }
+  .code-block-header { background: #f0f0f0 !important; }
+  .code-block pre code { color: #333 !important; }
+}
+#print-header { display: none; }
+
 </style>
 </head>
 <body>
@@ -1970,7 +2098,7 @@ body {
 
   <!-- Logo -->
   <div style="text-align:center;margin-bottom:28px;">
-    <div style="font-size:56px;margin-bottom:14px;filter:drop-shadow(0 0 24px rgba(212,172,100,0.5));animation:pulse 3s ease infinite">🕌</div>
+    <div style="margin-bottom:14px;filter:drop-shadow(0 0 24px rgba(212,172,100,0.5));animation:pulse 3s ease infinite"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="1.2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
     <div style="font-size:23px;font-weight:700;color:#f0ebe0;letter-spacing:0.3px;">Hanafi Fiqh Assistent</div>
     <div style="font-size:12px;color:#5e5850;margin-top:5px;letter-spacing:1.5px;text-transform:uppercase;">Privater Zugang</div>
   </div>
@@ -2008,10 +2136,17 @@ body {
     <div style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.8;">
       ✓ Passwort korrekt — bitte mit Google anmelden
     </div>
-    <div id="_google_btn" style="display:flex;justify-content:center;"></div>
-    <div style="font-size:11px;color:#5e5850;text-align:center;line-height:1.6;">
-      Nur erlaubte Google-Accounts erhalten Zugang
-    </div>
+    <button id="_google_signin_btn" onclick="_startGoogleSignIn()"
+      style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+      padding:13px 20px;border-radius:12px;border:1.5px solid rgba(255,255,255,0.15);
+      background:rgba(255,255,255,0.06);color:#f0ebe0;font-size:14px;font-weight:500;
+      cursor:pointer;font-family:inherit;transition:all .2s;"
+      onmouseenter="this.style.background='rgba(255,255,255,0.1)'"
+      onmouseleave="this.style.background='rgba(255,255,255,0.06)'">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Mit Google anmelden
+    </button>
+    <div style="font-size:11px;color:#5e5850;text-align:center;">Nur erlaubte Accounts erhalten Zugang</div>
   </div>
 
 </div>
@@ -2027,7 +2162,7 @@ body {
 <aside id="sidebar">
   <div class="sidebar-header">
     <div class="app-brand">
-      <div class="brand-icon">☽</div>
+      <div class="brand-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
       <div>
         <div class="brand-text">Fiqh Hanafi</div>
         <div class="brand-sub">KI-Assistent · Premium</div>
@@ -2039,83 +2174,53 @@ body {
     </button>
   </div>
 
-  <div class="sidebar-nav">
-    <button class="nav-btn active" id="nav-chat" onclick="switchSidebarView('chat',this)">
-      <span class="nav-icon">💬</span>
-      Chats
+  <!-- Sidebar Nav -->
+  <div class="sidebar-nav" id="sidebar-nav">
+    <button class="nav-btn active" id="nav-btn-chats" onclick="switchSidebarView('chats')">
+      <span class="nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>Chats
     </button>
-    <button class="nav-btn" id="nav-image" onclick="switchSidebarView('image',this)">
-      <span class="nav-icon">🎨</span>
-      Bilder
+    <button class="nav-btn" id="nav-btn-fav" onclick="switchSidebarView('fav')">
+      <span class="nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>Favoriten
+    </button>
+    <button class="nav-btn" id="nav-btn-notes" onclick="switchSidebarView('notes')">
+      <span class="nav-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>Notizen
     </button>
   </div>
 
   <!-- Chat list view -->
   <div id="sidebar-chat-view" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="tag-filter-row" id="tag-filter-row">
+      <button class="tag-filter-btn active" onclick="setTagFilter('')" data-tag="">Alle</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Salah')" data-tag="Salah">Salah</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Zakat')" data-tag="Zakat">Zakat</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Sawm')" data-tag="Sawm">Sawm</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Nikah')" data-tag="Nikah">Nikah</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Aqeedah')" data-tag="Aqeedah">Aqeedah</button>
+      <button class="tag-filter-btn" onclick="setTagFilter('Andere')" data-tag="Andere">Andere</button>
+    </div>
     <div class="chat-list-label">Verlauf</div>
     <div id="chat-list"></div>
   </div>
 
-  <!-- Image Generation View -->
-  <div id="sidebar-image-view">
-    <div class="img-panel-inner">
-      <div class="img-panel-header">
-        <div class="img-panel-title">🎨 Bilder erstellen</div>
-        <div class="img-panel-sub">KI-Bildgenerierung direkt in der App</div>
-      </div>
-
-      <!-- Pollinations Panel -->
-      <div id="img-panel-pollinations">
-        <div class="info-box" style="font-size:11px;padding:10px 12px;margin-bottom:8px;border-color:rgba(255,180,220,0.3);background:rgba(255,150,200,0.06);">
-          <strong style="color:#f09bc0;">🎲 Stable Horde</strong> — 100% kostenlos · kein Key · garantiert
-          <br><span style="opacity:0.7;">Community-Server · Wartezeit: 1–3 Minuten</span>
-        </div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <label class="form-label">HuggingFace API-Key <span style="font-weight:400;text-transform:none;color:var(--text-muted);">(optional — für schnellere Generierung)</span></label>
-          <div class="api-key-wrap">
-            <input class="form-input" type="password" id="hf-api-key-input" placeholder="hf_… (kostenlos auf huggingface.co)" style="font-size:12px;">
-            <button class="toggle-key-btn" onclick="toggleKey('hf-api-key-input')">👁</button>
-          </div>
-          <div class="form-hint"><a href="https://huggingface.co/settings/tokens" target="_blank">Kostenlos erstellen →</a></div>
-        </div>
-        <div>
-          <div class="img-sd-label">Modell</div>
-          <div class="img-provider-row" style="flex-wrap:wrap;gap:5px;" id="poll-model-row">
-            <button class="img-size-btn active" onclick="selectPollinationsModel(this,'flux')">⚡ Flux</button>
-            <button class="img-size-btn" onclick="selectPollinationsModel(this,'flux-realism')">📷 Realism</button>
-            <button class="img-size-btn" onclick="selectPollinationsModel(this,'flux-cablyai')">🎨 Anime</button>
-            <button class="img-size-btn" onclick="selectPollinationsModel(this,'turbo')">🚀 Turbo</button>
-          </div>
-        </div>
-      </div>
-
-
-      <!-- Größe -->
-      <div>
-        <div class="img-sd-label">Bildgröße</div>
-        <div class="img-size-row">
-          <button class="img-size-btn active" onclick="selectImgSize(this,'512x512')">512²</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'768x768')">768²</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'1024x1024')">1024²</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'768x1024')">Portrait</button>
-          <button class="img-size-btn" onclick="selectImgSize(this,'1024x768')">Landscape</button>
-        </div>
-      </div>
-
-      <!-- Prompt -->
-      <textarea class="img-prompt-area" id="img-prompt" placeholder="Beschreibe das Bild auf Englisch… z.B. 'A beautiful mosque at sunset, golden light, photorealistic'" onkeydown="if(event.ctrlKey&&event.key==='Enter')generateImage()"></textarea>
-      <button class="img-generate-btn" id="img-gen-btn" onclick="generateImage()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        Bild generieren
-      </button>
-
-      <!-- Ergebnisse -->
-      <div id="img-results" class="img-result-grid"></div>
+  <!-- Favoriten view -->
+  <div id="sidebar-fav-view">
+    <div class="chat-list-label" style="padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between;">
+      <span>Favoriten</span>
     </div>
+    <div class="fav-list" id="fav-list"></div>
   </div>
 
-
-
+  <!-- Notizen view -->
+  <div id="sidebar-notes-view">
+    <div style="padding:10px 8px 0;">
+      <button class="btn-new-chat" onclick="openNewNote()" style="margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Neue Notiz
+      </button>
+    </div>
+    <div class="chat-list-label">Notizen</div>
+    <div class="notes-list" id="notes-list"></div>
+  </div>
 
 
 
@@ -2125,7 +2230,9 @@ body {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       Einstellungen
     </button>
-    <button class="footer-btn" onclick="toggleTheme()" id="theme-btn" title="Hell/Dunkel-Modus">🌙</button>
+    <button class="footer-btn" onclick="toggleTheme()" id="theme-btn" title="Hell/Dunkel-Modus">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
   </div>
 </aside>
 
@@ -2145,21 +2252,58 @@ body {
     <button class="topbar-btn" onclick="openSearch()" title="Suchen (Strg+F)" id="search-btn">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     </button>
+    <button class="topbar-btn" onclick="togglePrayerWidget()" title="Gebetszeiten &amp; Islamischer Kalender" id="prayer-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <button class="topbar-btn" onclick="toggleMoreMenu()" title="Weitere Optionen" id="more-menu-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg>
+    </button>
     <button class="topbar-btn topbar-settings-btn" onclick="openSettings()" title="Einstellungen">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
     </button>
-    <button class="topbar-btn" onclick="openChatPolicy()" title="Chat konfigurieren" style="font-size:14px;">⚙️</button>
   </div>
 
+  <!-- More options dropdown -->
+  <div id="more-dropdown" class="hidden more-dropdown-menu">
+    <button class="more-menu-item" onclick="printChat(); closeMoreMenu()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+      Drucken / PDF
+    </button>
+    <button class="more-menu-item" onclick="openStatsModal(); closeMoreMenu()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Statistiken
+    </button>
+    <button class="more-menu-item" onclick="openChatPolicy(); closeMoreMenu()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg>
+      Chat konfigurieren
+    </button>
+  </div>
+
+  <!-- Prayer times dropdown -->
+  <div id="prayer-dropdown" class="hidden">
+    <div class="prayer-header">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      Islamischer Kalender &amp; Gebetszeiten
+    </div>
+    <div class="prayer-hijri" id="prayer-hijri">Hijri-Datum wird geladen…</div>
+    <div class="prayer-times-list" id="prayer-times-list">
+      <div class="prayer-loading">Standort wird ermittelt…</div>
+    </div>
+  </div>
+
+  <!-- Print header (hidden, shown in print) -->
+  <div id="print-header"></div>
+
   <div id="api-banner" onclick="openSettings()">
-    ⚠️ Kein API-Key konfiguriert — Hier klicken zum Einrichten
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    Kein API-Key konfiguriert — Hier klicken zum Einrichten
   </div>
 
   <!-- Search Overlay -->
   <div id="search-overlay" class="hidden" onclick="if(event.target===this)closeSearch()">
     <div class="search-box">
       <div class="search-input-wrap">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
         <input id="search-input" type="text" placeholder="Im Chat suchen…" oninput="runSearch(this.value)" onkeydown="if(event.key==='Escape')closeSearch()">
         <button class="search-close-btn" onclick="closeSearch()">✕</button>
       </div>
@@ -2230,7 +2374,7 @@ body {
   <div class="modal" style="max-width:560px;">
     <div class="modal-header">
       <div class="modal-title">
-        <div class="modal-title-icon">⚙️</div>
+        <div class="modal-title-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></div>
         Einstellungen
       </div>
       <button class="modal-close" onclick="closeSettings()">✕</button>
@@ -2329,7 +2473,7 @@ body {
               <label class="form-label">Modell</label>
               <div style="display:flex;gap:8px;align-items:flex-end;">
                 <input class="form-input" type="text" id="ollama-model-input" placeholder="llama3.2" style="flex:1;">
-                <button class="btn-cancel" style="white-space:nowrap;flex-shrink:0;" onclick="testOllamaConnection()">🔗 Testen</button>
+                <button class="btn-cancel" style="white-space:nowrap;flex-shrink:0;" onclick="testOllamaConnection()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Testen</button>
               </div>
               <div class="form-hint" id="ollama-hint">Beispiele: llama3.2 · mistral · qwen2.5 · gemma2 · phi3 · llama3.1:70b</div>
             </div>
@@ -2449,7 +2593,7 @@ body {
             <label class="form-label">Whisper Server-URL</label>
             <div style="display:flex;gap:8px;">
               <input class="form-input" type="text" id="whisper-url-input" placeholder="http://localhost:8000" style="flex:1;">
-              <button class="btn-cancel" style="white-space:nowrap;flex-shrink:0;" onclick="testWhisperConnection()">🔗 Testen</button>
+              <button class="btn-cancel" style="white-space:nowrap;flex-shrink:0;" onclick="testWhisperConnection()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Testen</button>
             </div>
             <div class="form-hint" id="whisper-hint">
               faster-whisper-server: Port 8000 · whisper.cpp Server: Port 8080
@@ -2531,7 +2675,7 @@ body {
           <div class="settings-section-title">Daten</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn-cancel" onclick="exportChats()">📥 JSON exportieren</button>
-            <button class="btn-cancel" onclick="exportChatAsMarkdown()">📄 Markdown exportieren</button>
+            <button class="btn-cancel" onclick="exportChatAsMarkdown()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Markdown exportieren</button>
             <button class="btn-cancel" style="color:var(--danger);border-color:rgba(224,92,92,0.3);" onclick="clearAllChats(this)">🗑 Alle Chats löschen</button>
           </div>
         </div>
@@ -2569,6 +2713,10 @@ body {
           <!-- wird per JS gefüllt -->
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Tags <span style="font-weight:400;text-transform:none;color:var(--text-muted);">(optional)</span></label>
+        <div class="tag-selector" id="new-chat-tags-selector"></div>
+      </div>
       <div class="form-group" style="margin-bottom:0;">
         <label class="form-label">Erste Anweisung <span style="font-weight:400;text-transform:none;color:var(--text-muted);">(optional)</span></label>
         <textarea class="form-textarea" id="new-chat-instruction" placeholder="z.B. Antworte auf Türkisch und zitiere immer die Quellen auf Arabisch…" style="min-height:60px;font-size:12.5px;"></textarea>
@@ -2591,15 +2739,19 @@ body {
   <div class="modal" style="max-width:380px;">
     <div class="modal-header">
       <div class="modal-title">
-        <div class="modal-title-icon">✏️</div>
+        <div class="modal-title-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
         Chat umbenennen
       </div>
       <button class="modal-close" onclick="closeRename()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-group" style="margin-bottom:0;">
+      <div class="form-group">
         <label class="form-label">Neuer Name</label>
         <input class="form-input rename-input" type="text" id="rename-input" placeholder="Chat-Titel…" onkeydown="if(event.key==='Enter')saveRename()">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Tags <span style="font-weight:400;text-transform:none;color:var(--text-muted);">(optional)</span></label>
+        <div class="tag-selector" id="rename-tags-selector"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2616,14 +2768,14 @@ body {
   <div class="modal" style="max-width:500px;">
     <div class="modal-header">
       <div class="modal-title">
-        <div class="modal-title-icon">📋</div>
+        <div class="modal-title-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg></div>
         Chat konfigurieren
       </div>
       <button class="modal-close" onclick="closeChatPolicy()">✕</button>
     </div>
     <div class="modal-body">
       <div class="info-box" style="margin-bottom:16px;">
-        <strong>💬 Chat-spezifische Anweisungen</strong>
+        <strong>Chat-spezifische Anweisungen</strong>
         Diese Einstellungen gelten nur für diesen Chat und werden dauerhaft gespeichert.
       </div>
       <div class="settings-section">
@@ -2671,6 +2823,62 @@ body {
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════
+     NOTE EDITOR MODAL
+═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="note-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <div class="modal-title-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+        <span id="note-modal-title">Neue Notiz</span>
+      </div>
+      <button class="modal-close" onclick="closeNoteModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Titel</label>
+        <input class="form-input" type="text" id="note-title-input" placeholder="Titel der Notiz…" maxlength="80">
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Inhalt</label>
+        <textarea class="form-textarea" id="note-content-input" placeholder="Notiz schreiben…" style="min-height:200px;font-size:13px;line-height:1.65;"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Tags</label>
+        <div class="tag-selector" id="note-tags-selector"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="deleteCurrentNote()" id="note-delete-btn" style="color:var(--danger);border-color:rgba(224,92,92,0.3);display:none;">🗑 Löschen</button>
+      <button class="btn-cancel" onclick="closeNoteModal()">Abbrechen</button>
+      <button class="btn-save" onclick="saveNote()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     STATS MODAL
+═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="stats-modal">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <div class="modal-title-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+        Chat-Statistiken
+      </div>
+      <button class="modal-close" onclick="document.getElementById('stats-modal').classList.add('hidden')">✕</button>
+    </div>
+    <div class="modal-body" id="stats-modal-body">
+      <!-- filled by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     NEW CHAT MODAL — tag row added inside via JS
+═══════════════════════════════════════════ -->
 
 <!-- Toast -->
 <div id="toast">
@@ -2826,7 +3034,10 @@ let state = {
 // ═══════════════════════════════════════════════
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function getActiveChat() { return state.chats.find(c => c.id === state.activeChatId); }
-function saveChats() { LS.set('hf_chats', state.chats); }
+function saveChats() {
+  LS.set('hf_chats', state.chats);
+  if (typeof window._syncChatsToFirestore === 'function') window._syncChatsToFirestore();
+}
 function setActiveChat(id) {
   state.activeChatId = id;
   localStorage.setItem('hf_activeChat', id);
@@ -2838,6 +3049,7 @@ let _newChatSelectedEmoji = '💬';
 
 function newChat() {
   _newChatSelectedEmoji = '💬';
+  _newChatSelectedTags = [];
   document.getElementById('new-chat-name').value = '';
   document.getElementById('new-chat-instruction').value = '';
   document.getElementById('new-chat-emoji-display').textContent = '💬';
@@ -2847,6 +3059,9 @@ function newChat() {
   row.innerHTML = NEW_CHAT_EMOJIS.map(e =>
     `<button class="chat-emoji-btn${e==='💬'?' selected':''}" onclick="selectNewChatEmoji(this,'${e}')">${e}</button>`
   ).join('');
+
+  // Tag-Auswahl aufbauen
+  buildTagSelector('new-chat-tags-selector', [], toggleNewChatTag);
 
   document.getElementById('new-chat-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('new-chat-name').focus(), 80);
@@ -2881,6 +3096,7 @@ function confirmNewChat() {
     icon: _newChatSelectedEmoji,
     messages: [],
     createdAt: Date.now(),
+    tags: [..._newChatSelectedTags],
     policy: instruction ? { custom: instruction } : {}
   };
   state.chats.unshift(chat);
@@ -2898,7 +3114,9 @@ function openRename(id, e) {
   const chat = state.chats.find(c => c.id === id);
   if (!chat) return;
   state.renamingId = id;
+  _renamingSelectedTags = [...(chat.tags || [])];
   document.getElementById('rename-input').value = chat.title;
+  buildTagSelector('rename-tags-selector', _renamingSelectedTags, toggleRenameTag);
   document.getElementById('rename-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('rename-input').focus(), 100);
 }
@@ -2907,7 +3125,11 @@ function saveRename() {
   const val = document.getElementById('rename-input').value.trim();
   if (!val || !state.renamingId) return;
   const chat = state.chats.find(c => c.id === state.renamingId);
-  if (chat) { chat.title = val; saveChats(); renderChatList(); updateChatTitle(); }
+  if (chat) {
+    chat.title = val;
+    chat.tags = [..._renamingSelectedTags];
+    saveChats(); renderChatList(); updateChatTitle();
+  }
   closeRename();
 }
 
@@ -2916,21 +3138,35 @@ function saveRename() {
 // ═══════════════════════════════════════════════
 function renderChatList() {
   const el = document.getElementById('chat-list');
-  if (state.chats.length === 0) {
-    el.innerHTML = '<div style="padding:20px 16px;font-size:12px;color:var(--text-muted);text-align:center;line-height:1.7;">Noch keine Chats.<br>Starte mit einem neuen Chat ↑</div>';
+  // Apply tag filter
+  const filtered = _activeTagFilter
+    ? state.chats.filter(c => (c.tags || []).includes(_activeTagFilter))
+    : state.chats;
+
+  if (filtered.length === 0) {
+    el.innerHTML = state.chats.length === 0
+      ? '<div style="padding:20px 16px;font-size:12px;color:var(--text-muted);text-align:center;line-height:1.7;">Noch keine Chats.<br>Starte mit einem neuen Chat ↑</div>'
+      : `<div style="padding:20px 16px;font-size:12px;color:var(--text-muted);text-align:center;line-height:1.7;">Keine Chats mit Tag „${escHtml(_activeTagFilter)}".</div>`;
     return;
   }
-  el.innerHTML = state.chats.map((c, i) => `
-    <div class="chat-item ${c.id === state.activeChatId ? 'active' : ''}" onclick="switchChat('${c.id}')" style="animation-delay:${i*0.04}s">
-      <span class="chat-item-icon">${c.policy && Object.keys(c.policy).some(k=>c.policy[k]) ? '📌' : '💬'}</span>
-      <span class="chat-item-title">${escHtml(c.title)}</span>
-      <div class="chat-item-actions">
-        <button class="chat-action-btn" onclick="openChatPolicyForId('${c.id}', event)" title="Chat konfigurieren">⚙️</button>
-        <button class="chat-action-btn" onclick="openRename('${c.id}', event)" title="Umbenennen">✏️</button>
-        <button class="chat-action-btn del" onclick="deleteChat('${c.id}', event)" title="Löschen">🗑</button>
+  el.innerHTML = filtered.map((c, i) => {
+    const tags = (c.tags || []).map(t =>
+      `<span class="${tagChipClass(t)}">${escHtml(t)}</span>`
+    ).join('');
+    return `
+    <div class="chat-item ${c.id === state.activeChatId ? 'active' : ''}" onclick="switchChat('${c.id}')" style="animation-delay:${i*0.04}s;flex-direction:column;align-items:stretch;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="chat-item-icon">${c.policy && Object.keys(c.policy).some(k=>c.policy[k]) ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17H19V13L21 4H3L5 13Z"/></svg>` : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`}</span>
+        <span class="chat-item-title">${escHtml(c.title)}</span>
+        <div class="chat-item-actions">
+          <button class="chat-action-btn" onclick="openChatPolicyForId('${c.id}', event)" title="Chat konfigurieren"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+          <button class="chat-action-btn" onclick="openRename('${c.id}', event)" title="Umbenennen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="chat-action-btn del" onclick="deleteChat('${c.id}', event)" title="Löschen">🗑</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+      ${tags ? `<div style="padding-left:21px;margin-top:2px;">${tags}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function switchChat(id) {
@@ -2958,11 +3194,12 @@ function renderMessages() {
 
 function buildMessageHtml(msg) {
   const isUser = msg.role === 'user';
-  const avatar = isUser ? '👤' : '☽';
+  const avatar = isUser
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   const roleLabel = isUser ? 'Du' : 'Fiqh-Assistent';
   const text = formatText(msg.content);
   const time = new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-  // ADDED: speichere Erstellungszeitpunkt als data-Attribut für Edit-Timer
   const ts = msg.ts || Date.now();
   return `
     <div class="message-wrapper ${isUser ? 'user' : 'assistant'}" data-ts="${ts}">
@@ -2975,13 +3212,22 @@ function buildMessageHtml(msg) {
           </div>
           <div class="message-bubble">${text}</div>
           <div class="message-actions">
-            ${!isUser ? `<button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren">📋 Kopieren</button>` : ''}
-            ${!isUser ? `<button class="msg-action-btn msg-regen-btn" onclick="regenerateMessage(this)" title="Neu generieren">🔄 Neu</button>` : ''}
-            ${isUser ? `<button class="msg-action-btn msg-edit-btn" onclick="startEditMessage(this)" title="Bearbeiten">✏️ Bearbeiten</button>` : ''}
+            ${!isUser ? `<button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren</button>` : ''}
+            ${!isUser ? `<button class="msg-action-btn tts-btn" onclick="speakMessage(this)" title="Vorlesen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>` : ''}
+            ${!isUser ? `<button class="msg-action-btn" onclick="addFavoriteFromBtn(this)" title="Als Favorit speichern"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>` : ''}
+            ${!isUser ? `<button class="msg-action-btn" onclick="shareMessage(this)" title="Teilen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>` : ''}
+            ${!isUser ? `<button class="msg-action-btn msg-regen-btn" onclick="regenerateMessage(this)" title="Neu generieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Neu</button>` : ''}
+            ${isUser ? `<button class="msg-action-btn msg-edit-btn" onclick="startEditMessage(this)" title="Bearbeiten"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Bearbeiten</button>` : ''}
           </div>
         </div>
       </div>
     </div>`;
+}
+
+function addFavoriteFromBtn(btn) {
+  const bubble = btn.closest('.message-body').querySelector('.message-bubble');
+  if (!bubble) return;
+  addFavorite(bubble.innerText || bubble.textContent);
 }
 
 function copyMessage(btn) {
@@ -3138,7 +3384,7 @@ function formatText(raw) {
       }
       const id = 'cb_' + Math.random().toString(36).slice(2, 8);
       const code = escHtml(codeLines.join('\n'));
-      result += `<div class="code-block"><div class="code-block-header"><span class="code-lang">${escHtml(lang)}</span><button class="code-copy-btn" onclick="copyCode('${id}')">📋 Kopieren</button></div><pre id="${id}"><code>${code}</code></pre></div>`;
+      result += `<div class="code-block"><div class="code-block-header"><span class="code-lang">${escHtml(lang)}</span><button class="code-copy-btn" onclick="copyCode('${id}')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren</button></div><pre id="${id}"><code>${code}</code></pre></div>`;
       i++; continue;
     }
 
@@ -3223,7 +3469,7 @@ function addTypingIndicator() {
   el.className = 'typing-wrapper';
   el.innerHTML = `
     <div class="typing-inner">
-      <div class="message-avatar assistant-avatar">☽</div>
+      <div class="message-avatar assistant-avatar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
       <div>
         <div class="message-role" style="color:var(--accent);font-size:10.5px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px;">Fiqh-Assistent</div>
         <div class="typing-dots"><span></span><span></span><span></span></div>
@@ -3304,7 +3550,7 @@ function createStreamingWrapper() {
   wrapper.dataset.ts = Date.now();
   wrapper.innerHTML = `
     <div class="message-inner">
-      <div class="message-avatar assistant-avatar">☽</div>
+      <div class="message-avatar assistant-avatar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
       <div class="message-body">
         <div class="message-role">
           Fiqh-Assistent
@@ -3312,7 +3558,11 @@ function createStreamingWrapper() {
         </div>
         <div class="streaming-bubble"><span class="streaming-cursor"></span></div>
         <div class="message-actions" style="opacity:0;">
-          <button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren">📋 Kopieren</button>
+          <button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren</button>
+          <button class="msg-action-btn tts-btn" onclick="speakMessage(this)" title="Vorlesen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+          <button class="msg-action-btn" onclick="addFavoriteFromBtn(this)" title="Als Favorit speichern"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+          <button class="msg-action-btn" onclick="shareMessage(this)" title="Teilen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+          <button class="msg-action-btn msg-regen-btn" onclick="regenerateMessage(this)" title="Neu generieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Neu</button>
         </div>
       </div>
     </div>`;
@@ -4153,7 +4403,9 @@ function toggleTheme() {
   const html = document.documentElement;
   const dark = html.dataset.theme === 'dark';
   html.dataset.theme = dark ? 'light' : 'dark';
-  document.getElementById('theme-btn').textContent = dark ? '☀️' : '🌙';
+  document.getElementById('theme-btn').innerHTML = dark
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   localStorage.setItem('hf_theme', html.dataset.theme);
   if (currentUser && window._fbSave) {
     window._fbSave('settings', { theme: html.dataset.theme, updatedAt: Date.now() });
@@ -4224,7 +4476,9 @@ function initApp() {
   const savedTheme = localStorage.getItem('hf_theme') || 'dark';
   document.documentElement.dataset.theme = savedTheme;
   const themeBtn = document.getElementById('theme-btn');
-  if (themeBtn) themeBtn.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
+  if (themeBtn) themeBtn.innerHTML = savedTheme === 'dark'
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
 
   if (state.activeChatId && !getActiveChat()) {
     state.activeChatId = state.chats[0]?.id || null;
@@ -4236,7 +4490,6 @@ function initApp() {
   renderMessages();
   updateApiBanner();
   updateProviderBadge();
-  if (typeof renderImgHistory === 'function') renderImgHistory();
 
   document.getElementById('settings-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('settings-modal')) closeSettings();
@@ -4257,6 +4510,27 @@ function initApp() {
   }
 
   document.getElementById('message-input').focus();
+
+  // Initialize sidebar views — show chat view by default
+  switchSidebarView('chats');
+
+  // Initialize note modal tag selector
+  buildTagSelector('note-tags-selector', [], function(btn, tag) {
+    const idx = _noteSelectedTags.indexOf(tag);
+    if (idx === -1) { _noteSelectedTags.push(tag); btn.classList.add('active'); }
+    else { _noteSelectedTags.splice(idx, 1); btn.classList.remove('active'); }
+  });
+
+  // Close stats modal on overlay click
+  document.getElementById('stats-modal')?.addEventListener('click', e => {
+    if (e.target === document.getElementById('stats-modal'))
+      document.getElementById('stats-modal').classList.add('hidden');
+  });
+
+  // Close note modal on overlay click
+  document.getElementById('note-modal')?.addEventListener('click', e => {
+    if (e.target === document.getElementById('note-modal')) closeNoteModal();
+  });
 
   initScrollFab();
   initDragDrop();
@@ -4738,7 +5012,7 @@ function runSearch(query) {
     const excerpt = m.content.substring(Math.max(0, m.content.toLowerCase().indexOf(q) - 60), m.content.toLowerCase().indexOf(q) + 140);
     const safeQuery = escHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const highlighted = escHtml(excerpt).replace(new RegExp(safeQuery, 'gi'), match => `<mark>${match}</mark>`);
-    item.innerHTML = `<div class="search-result-role">${m.role === 'user' ? '👤 Du' : '☽ Assistent'}</div><div class="search-result-text">${highlighted}</div>`;
+    item.innerHTML = `<div class="search-result-role">${m.role === 'user' ? 'Du' : 'Assistent'}</div><div class="search-result-text">${highlighted}</div>`;
     item.onclick = () => { closeSearch(); scrollToMessage(m); };
     results.appendChild(item);
   });
@@ -4769,7 +5043,7 @@ function exportChatAsMarkdown() {
   let md = `# ${chat.title}\n\n*Exportiert am ${new Date().toLocaleDateString('de-DE')}*\n\n---\n\n`;
   chat.messages.forEach(m => {
     if (m.content.startsWith('__DUAL__')) return;
-    md += `**${m.role === 'user' ? '👤 Du' : '☽ Fiqh-Assistent'}**\n\n${m.content}\n\n---\n\n`;
+    md += `**${m.role === 'user' ? 'Du' : 'Fiqh-Assistent'}**\n\n${m.content}\n\n---\n\n`;
   });
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -4780,254 +5054,568 @@ function exportChatAsMarkdown() {
 }
 
 // ═══════════════════════════════════════════════
-//  BILDGENERIERUNG
+//  SIDEBAR VIEW (nur Chat)
 // ═══════════════════════════════════════════════
-let _imgProvider = 'pollinations';
-let _imgSize = '512x512';
 
-let _pollinationsModel = 'flux';
+// ═══════════════════════════════════════════════
+//  FEATURE 1: FAVORITEN
+// ═══════════════════════════════════════════════
+function getFavorites() { return LS.get('hf_favorites') || []; }
+function saveFavorites(favs) { LS.set('hf_favorites', favs); }
 
-function switchImgProvider(p, btn) {
-  _imgProvider = p;
-}
-
-function selectPollinationsModel(btn, model) {
-  _pollinationsModel = model;
-  document.querySelectorAll('#poll-model-row .img-size-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-function selectImgSize(btn, size) {
-  _imgSize = size;
-  document.querySelectorAll('.img-size-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-async function generateImage() {
-  const prompt = document.getElementById('img-prompt').value.trim();
-  if (!prompt) { showToast('Bitte einen Prompt eingeben', 'error'); return; }
-
-  const btn = document.getElementById('img-gen-btn');
-  const results = document.getElementById('img-results');
-  btn.disabled = true;
-
-  results.innerHTML = `<div class="img-loading">
-    <div class="img-loading-spinner"></div>
-    <div>Bild wird generiert…<br><span style="font-size:10.5px;opacity:0.6;">✨ Pollinations AI · kostenlos · ~15–30 Sek.</span></div>
-  </div>`;
-
-  try {
-    let base64 = null;
-    base64 = await generateImagePollinations(prompt);
-
-    if (!base64) throw new Error('Kein Bild erhalten');
-
-    const [w, h] = _imgSize.split('x');
-    const dataUrl = `data:image/png;base64,${base64}`;
-    const card = document.createElement('div');
-    card.className = 'img-result-card';
-    card.innerHTML = `
-      <img src="${dataUrl}" alt="${prompt}" style="max-height:280px;object-fit:contain;width:100%;background:var(--bg-primary);" onclick="openImgFullscreen(this.src)">
-      <div class="img-result-footer">
-        <span class="img-result-prompt" title="${prompt}">${prompt}</span>
-        <div class="img-result-btns">
-          <a class="img-result-btn" href="${dataUrl}" download="hanafi-img-${Date.now()}.png">💾</a>
-          <button class="img-result-btn" onclick="sendImageToChat(this.closest('.img-result-card').querySelector('img').src,this.dataset.p)" data-p="${prompt.replace(/"/g,'&quot;')}">💬 Chat</button>
-        </div>
-      </div>`;
-    results.innerHTML = '';
-    results.prepend(card);
-    showToast('Bild generiert ✓', 'success');
-  } catch (err) {
-    results.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--danger);background:var(--danger-dim);border-radius:8px;border:1px solid rgba(224,92,92,0.3);white-space:pre-wrap;line-height:1.7;">❌ ${escHtml(err.message)}</div>`;
-    showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// Blob → Base64 Helper
-function blobToBase64Img(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
+function addFavorite(content) {
+  const chat = getActiveChat();
+  const favs = getFavorites();
+  const id = generateId();
+  favs.unshift({
+    id,
+    content,
+    chatTitle: chat ? chat.title : 'Unbekannter Chat',
+    chatId: state.activeChatId || '',
+    date: new Date().toLocaleDateString('de-DE'),
+    note: ''
   });
+  saveFavorites(favs);
+  renderFavList();
+  showToast('Als Favorit gespeichert', 'success');
 }
 
-// Pollinations AI — 100% kostenlos, kein Key, kein Polling, ~15-30 Sek.
-async function generateImagePollinations(prompt) {
-  const [w, h] = _imgSize.split('x').map(Number);
-  const modelMap = {
-    'flux':         'flux',
-    'flux-realism': 'flux-realism',
-    'flux-cablyai': 'flux-anime',
-    'turbo':        'turbo',
-  };
-  const model = modelMap[_pollinationsModel] || 'flux';
-  const seed  = Math.floor(Math.random() * 999999);
-  const width  = Math.min(w, 1024);
-  const height = Math.min(h, 1024);
-
-  // Ladetext aktualisieren
-  const loadEl = document.querySelector('#img-results .img-loading div:last-child');
-  if (loadEl) loadEl.innerHTML = `✨ Pollinations AI · ${model}<br><span style="font-size:10px;opacity:0.7;">Generierung läuft… bitte warten</span>`;
-
-  const encodedPrompt = encodeURIComponent(prompt);
-  const imgUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&model=${model}&seed=${seed}`;
-
-  // Bild mit 90s Timeout laden
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
-
-  let res;
-  try {
-    res = await fetch(imgUrl, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!res.ok) {
-    // Fallback: Stable Horde wenn Pollinations fehlschlägt
-    if (loadEl) loadEl.innerHTML = `⏳ Fallback: Stable Horde…<br><span style="font-size:10px;opacity:0.7;">Kann 1–3 Min. dauern</span>`;
-    return await generateImageHorde(prompt, w, h);
-  }
-
-  const blob = await res.blob();
-  if (!blob.size) throw new Error('Pollinations: Leeres Bild erhalten');
-  return await blobToBase64Img(blob);
+function deleteFavorite(id, e) {
+  e && e.stopPropagation();
+  const favs = getFavorites().filter(f => f.id !== id);
+  saveFavorites(favs);
+  renderFavList();
+  showToast('Favorit entfernt', '');
 }
 
-// Stable Horde als Fallback
-async function generateImageHorde(prompt, w, h) {
-  const modelMap = {
-    'flux':         'Stable Diffusion XL',
-    'flux-realism': 'Realistic Vision',
-    'flux-cablyai': 'DreamShaper',
-    'turbo':        'Stable Diffusion 2.1',
-  };
-  const hordeModel = modelMap[_pollinationsModel] || 'Stable Diffusion XL';
+function renderFavList() {
+  const el = document.getElementById('fav-list');
+  if (!el) return;
+  const favs = getFavorites();
+  if (!favs.length) {
+    el.innerHTML = '<div style="padding:20px 16px;font-size:12px;color:var(--text-muted);text-align:center;line-height:1.7;">Keine Favoriten gespeichert.<br>Klicke auf das Stern-Symbol an einer KI-Antwort.</div>';
+    return;
+  }
+  el.innerHTML = favs.map(f => `
+    <div class="fav-card" id="fav-${f.id}" onclick="toggleFavExpand('${f.id}')">
+      <div class="fav-card-excerpt" id="fav-exc-${f.id}">${escHtml(f.content.slice(0, 120))}${f.content.length > 120 ? '…' : ''}</div>
+      <div class="fav-card-meta">
+        <span title="${escHtml(f.chatTitle)}">${escHtml(f.chatTitle.slice(0, 22))}${f.chatTitle.length > 22 ? '…' : ''} · ${f.date}</span>
+        <button class="fav-card-del" onclick="deleteFavorite('${f.id}', event)" title="Entfernen">🗑</button>
+      </div>
+    </div>`).join('');
+}
 
-  const startRes = await fetch('https://stablehorde.net/api/v2/generate/async', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': '0000000000' },
-    body: JSON.stringify({
-      prompt,
-      params: { width: Math.min(w,768), height: Math.min(h,768), steps: 20, n: 1, sampler_name: 'k_euler_a', cfg_scale: 7 },
-      models: [hordeModel], r2: false, shared: true,
-    }),
+function toggleFavExpand(id) {
+  const card = document.getElementById(`fav-${id}`);
+  const exc = document.getElementById(`fav-exc-${id}`);
+  if (!card || !exc) return;
+  const fav = getFavorites().find(f => f.id === id);
+  if (!fav) return;
+  const expanded = card.classList.toggle('expanded');
+  exc.textContent = expanded ? fav.content : fav.content.slice(0, 120) + (fav.content.length > 120 ? '…' : '');
+  exc.style.whiteSpace = expanded ? 'pre-wrap' : '';
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 2: CHAT-TAGS
+// ═══════════════════════════════════════════════
+const ALL_TAGS = ['Salah','Zakat','Sawm','Hajj','Nikah','Riba','Aqeedah','Siyasa','Tahara','Andere'];
+let _activeTagFilter = '';
+let _newChatSelectedTags = [];
+let _renamingSelectedTags = [];
+
+function tagChipClass(tag) {
+  return 'tag-chip tag-chip-' + tag.toLowerCase();
+}
+
+function buildTagSelector(containerId, selectedTags, onToggle) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = ALL_TAGS.map(t => {
+    const active = selectedTags.includes(t) ? 'active' : '';
+    return `<button class="tag-select-btn ${active}" onclick="(${onToggle.toString()})(this,'${t}')">${t}</button>`;
+  }).join('');
+}
+
+function toggleNewChatTag(btn, tag) {
+  const idx = _newChatSelectedTags.indexOf(tag);
+  if (idx === -1) { _newChatSelectedTags.push(tag); btn.classList.add('active'); }
+  else { _newChatSelectedTags.splice(idx, 1); btn.classList.remove('active'); }
+}
+
+function toggleRenameTag(btn, tag) {
+  const idx = _renamingSelectedTags.indexOf(tag);
+  if (idx === -1) { _renamingSelectedTags.push(tag); btn.classList.add('active'); }
+  else { _renamingSelectedTags.splice(idx, 1); btn.classList.remove('active'); }
+}
+
+function setTagFilter(tag) {
+  _activeTagFilter = tag;
+  document.querySelectorAll('.tag-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tag === tag);
   });
-  if (!startRes.ok) { const e = await startRes.json().catch(()=>({})); throw new Error(`Stable Horde: ${e?.message||startRes.status}`); }
-  const { id } = await startRes.json();
-  if (!id) throw new Error('Stable Horde: Keine Job-ID');
+  renderChatList();
+}
 
-  for (let i = 0; i < 45; i++) {
-    await new Promise(r => setTimeout(r, 8000));
-    const c = await fetch(`https://stablehorde.net/api/v2/generate/check/${id}`).then(r=>r.json());
-    const loadEl = document.querySelector('#img-results .img-loading div:last-child');
-    if (loadEl) loadEl.innerHTML = `🎲 Stable Horde · ${hordeModel}<br><span style="font-size:10px;opacity:0.7;">~${c.wait_time??'?'}s · Pos. ${c.queue_position??'?'}</span>`;
-    if (c.faulted) throw new Error('Stable Horde: Fehlgeschlagen — nochmal versuchen');
-    if (c.done) {
-      const s = await fetch(`https://stablehorde.net/api/v2/generate/status/${id}`).then(r=>r.json());
-      const img = s.generations?.[0]?.img;
-      if (img) return img;
-      throw new Error('Stable Horde: Bild leer');
+// ═══════════════════════════════════════════════
+//  FEATURE 5: NOTIZEN
+// ═══════════════════════════════════════════════
+function getNotes() { return LS.get('hf_notes') || []; }
+function saveNotes(notes) {
+  LS.set('hf_notes', notes);
+  if (window._fbUser && typeof _syncNotesToFirestore === 'function') _syncNotesToFirestore();
+}
+
+let _editingNoteId = null;
+let _noteSelectedTags = [];
+
+function openNewNote() {
+  _editingNoteId = null;
+  _noteSelectedTags = [];
+  document.getElementById('note-modal-title').textContent = 'Neue Notiz';
+  document.getElementById('note-title-input').value = '';
+  document.getElementById('note-content-input').value = '';
+  document.getElementById('note-delete-btn').style.display = 'none';
+  buildTagSelector('note-tags-selector', [], function(btn, tag) {
+    const idx = _noteSelectedTags.indexOf(tag);
+    if (idx === -1) { _noteSelectedTags.push(tag); btn.classList.add('active'); }
+    else { _noteSelectedTags.splice(idx, 1); btn.classList.remove('active'); }
+  });
+  document.getElementById('note-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('note-title-input').focus(), 80);
+}
+
+function openEditNote(id) {
+  const note = getNotes().find(n => n.id === id);
+  if (!note) return;
+  _editingNoteId = id;
+  _noteSelectedTags = [...(note.tags || [])];
+  document.getElementById('note-modal-title').textContent = 'Notiz bearbeiten';
+  document.getElementById('note-title-input').value = note.title;
+  document.getElementById('note-content-input').value = note.content;
+  document.getElementById('note-delete-btn').style.display = '';
+  buildTagSelector('note-tags-selector', _noteSelectedTags, function(btn, tag) {
+    const idx = _noteSelectedTags.indexOf(tag);
+    if (idx === -1) { _noteSelectedTags.push(tag); btn.classList.add('active'); }
+    else { _noteSelectedTags.splice(idx, 1); btn.classList.remove('active'); }
+  });
+  document.getElementById('note-modal').classList.remove('hidden');
+}
+
+function closeNoteModal() {
+  document.getElementById('note-modal').classList.add('hidden');
+}
+
+function saveNote() {
+  const title = document.getElementById('note-title-input').value.trim();
+  const content = document.getElementById('note-content-input').value.trim();
+  if (!title) { showToast('Bitte einen Titel eingeben', 'error'); return; }
+  const notes = getNotes();
+  const now = Date.now();
+  if (_editingNoteId) {
+    const idx = notes.findIndex(n => n.id === _editingNoteId);
+    if (idx !== -1) {
+      notes[idx] = { ...notes[idx], title, content, tags: _noteSelectedTags, updatedAt: now };
     }
+  } else {
+    notes.unshift({ id: generateId(), title, content, tags: _noteSelectedTags, date: now, updatedAt: now });
   }
-  throw new Error('Stable Horde: Timeout — nochmal versuchen');
+  saveNotes(notes);
+  renderNotesList();
+  closeNoteModal();
+  showToast('Notiz gespeichert ✓', 'success');
 }
 
-// Gemini Bildgenerierung
-async function generateImageGemini(prompt) {
-  if (!state.geminiKey) throw new Error('Kein Gemini API-Key konfiguriert');
+function deleteCurrentNote() {
+  if (!_editingNoteId) return;
+  const notes = getNotes().filter(n => n.id !== _editingNoteId);
+  saveNotes(notes);
+  renderNotesList();
+  closeNoteModal();
+  showToast('Notiz gelöscht', '');
+}
 
-  const models = [
-    'gemini-2.0-flash-exp',
-    'gemini-2.0-flash-preview-image-generation',
-    'gemini-2.0-flash',
-  ];
-  const errors = [];
-
-  // Alle Gemini-Modelle mit generateContent + IMAGE modality versuchen
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.geminiKey}`;
-      const body = {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
-      };
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (res.ok) {
-        const b64 = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-        if (b64) return b64;
-        errors.push(`${model}: Antwort ok aber kein Bild drin`);
-      } else {
-        errors.push(`${model}: ${data?.error?.message || 'HTTP ' + res.status}`);
-      }
-    } catch (e) { errors.push(`${model}: ${e.message}`); }
+function renderNotesList() {
+  const el = document.getElementById('notes-list');
+  if (!el) return;
+  const notes = getNotes();
+  if (!notes.length) {
+    el.innerHTML = '<div style="padding:20px 16px;font-size:12px;color:var(--text-muted);text-align:center;line-height:1.7;">Keine Notizen vorhanden.<br>Erstelle deine erste Notiz ↑</div>';
+    return;
   }
-
-  // Alle Fehler anzeigen damit man weiß was los ist
-  throw new Error(
-    'Kein Gemini-Modell verfügbar für Bilder.\n\n' +
-    errors.map((e,i) => `${i+1}. ${e}`).join('\n') +
-    '\n\n→ Lösung: Stable Diffusion (lokal) nutzen'
-  );
+  el.innerHTML = notes.map(n => `
+    <div class="note-card" onclick="openEditNote('${n.id}')">
+      <div class="note-card-title">${escHtml(n.title)}</div>
+      <div class="note-card-preview">${escHtml(n.content.slice(0, 80))}${n.content.length > 80 ? '…' : ''}</div>
+      <div class="note-card-date">${new Date(n.updatedAt || n.date).toLocaleDateString('de-DE')}</div>
+    </div>`).join('');
 }
 
-// Stable Diffusion lokal (AUTOMATIC1111)
-async function generateImageSD(prompt) {
-  const sdUrl = (document.getElementById('sd-url-input')?.value || 'http://localhost:7860').replace(/\/$/, '');
-  const steps = parseInt(document.getElementById('sd-steps')?.value || 20);
-  const negPrompt = document.getElementById('sd-neg-prompt')?.value || 'blurry, low quality';
-  const [w, h] = _imgSize.split('x').map(Number);
-  const body = { prompt, negative_prompt: negPrompt, steps, width: w, height: h, cfg_scale: 7, sampler_name: 'DPM++ 2M Karras' };
-  let res;
-  try {
-    res = await fetch(`${sdUrl}/sdapi/v1/txt2img`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) });
-  } catch {
-    throw new Error(`Stable Diffusion nicht erreichbar (${sdUrl}) — starte mit: python launch.py --api`);
-  }
-  if (!res.ok) throw new Error(`SD HTTP ${res.status}`);
-  const data = await res.json();
-  if (!data?.images?.[0]) throw new Error('Stable Diffusion gab kein Bild zurück');
-  return data.images[0];
+// Firestore sync for notes (stub — only runs if Firebase is connected)
+function _syncNotesToFirestore() {
+  if (!window._fbUser || !window._fbDb) return;
+  clearTimeout(window._notesSyncTimer);
+  window._notesSyncTimer = setTimeout(() => {
+    window._fbDb.collection('users').doc(window._fbUser.uid).set(
+      { notes: getNotes(), notesUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    ).catch(e => console.warn('Notes sync:', e));
+  }, 1500);
 }
 
-function openImgFullscreen(src) {
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;backdrop-filter:blur(10px);animation:fadeIn 0.15s ease;';
-  overlay.innerHTML = `<img src="${src}" style="max-width:95vw;max-height:92vh;object-fit:contain;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,0.8);">`;
-  overlay.onclick = () => overlay.remove();
-  document.body.appendChild(overlay);
-}
-
-function sendImageToChat(dataUrl, promptText) {
-  const prompt = promptText || '';
-  // Bild als Nachricht in den aktiven Chat einfügen
-  if (!state.activeChatId || !getActiveChat()) newChat();
-  switchSidebarView('chat', document.getElementById('nav-chat'));
-  const input = document.getElementById('message-input');
-  input.value = (input.value ? input.value + '\n' : '') + `[Generiertes Bild: ${prompt}]`;
-  autoResize(input);
-  // Bild als Anhang simulieren
-  const previewEl = document.getElementById('attachment-preview');
-  previewEl.style.display = 'flex';
-  const tag = document.createElement('div');
-  tag.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg-tertiary);border:1px solid var(--border-accent);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--accent);';
-  tag.innerHTML = `<img src="${dataUrl}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;"> <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${prompt}</span>`;
-  previewEl.appendChild(tag);
-  input.focus();
-  showToast('Bild in Chat übertragen', 'success');
-}
-
-function switchSidebarView(view, btn) {
+// ═══════════════════════════════════════════════
+//  SIDEBAR VIEW SWITCHER
+// ═══════════════════════════════════════════════
+function switchSidebarView(view) {
+  // Hide all views
+  document.getElementById('sidebar-chat-view').style.display = 'none';
+  document.getElementById('sidebar-fav-view').style.display = 'none';
+  document.getElementById('sidebar-notes-view').style.display = 'none';
+  // Deactivate all nav buttons
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('sidebar-chat-view').style.display = view === 'chat' ? 'flex' : 'none';
-  document.getElementById('sidebar-image-view').style.display = view === 'image' ? 'flex' : 'none';
+
+  if (view === 'chats') {
+    document.getElementById('sidebar-chat-view').style.display = 'flex';
+    document.getElementById('nav-btn-chats').classList.add('active');
+  } else if (view === 'fav') {
+    document.getElementById('sidebar-fav-view').style.display = 'flex';
+    document.getElementById('nav-btn-fav').classList.add('active');
+    renderFavList();
+  } else if (view === 'notes') {
+    document.getElementById('sidebar-notes-view').style.display = 'flex';
+    document.getElementById('nav-btn-notes').classList.add('active');
+    renderNotesList();
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 3: PDF / PRINT
+// ═══════════════════════════════════════════════
+function printChat() {
+  const chat = getActiveChat();
+  const header = document.getElementById('print-header');
+  if (header) {
+    header.innerHTML = chat
+      ? `<h1 style="font-family:Georgia,serif;font-size:22px;color:#8b6418;margin:0 0 6px;">${escHtml(chat.title)}</h1>
+         <div style="font-size:12px;color:#888;">Exportiert am ${new Date().toLocaleDateString('de-DE')} · Hanafi Fiqh KI-Assistent</div>`
+      : `<h1 style="font-family:Georgia,serif;font-size:22px;color:#8b6418;margin:0 0 6px;">Hanafi Fiqh Assistent</h1>`;
+  }
+  window.print();
+}
+
+function copyCurrentChatAsText() {
+  const chat = getActiveChat();
+  if (!chat || !chat.messages.length) { showToast('Kein Chat vorhanden', 'error'); return; }
+  let text = `Hanafi Fiqh Assistent\n${chat.title} · ${new Date().toLocaleDateString('de-DE')}\n\n`;
+  chat.messages.forEach(m => {
+    if (m.content.startsWith('__DUAL__')) return;
+    text += `${m.role === 'user' ? 'Du' : 'Assistent'}:\n${m.content}\n\n`;
+  });
+  text += '— HanafiKI App';
+  navigator.clipboard.writeText(text).then(() => showToast('Chat als Text kopiert ✓', 'success'));
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 4: TEXT-TO-SPEECH
+// ═══════════════════════════════════════════════
+let _ttsSpeakingBtn = null;
+
+function stripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/\*([^*]+?)\*/g, '$1')
+    .replace(/_([^_]+?)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/^>\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getTTSLang() {
+  const lang = localStorage.getItem('hf_aiLang') || 'de';
+  const map = { de: 'de-DE', ar: 'ar-SA', tr: 'tr-TR', en: 'en-US' };
+  return map[lang] || 'de-DE';
+}
+
+function speakMessage(btn) {
+  if (!window.speechSynthesis) { showToast('Text-to-Speech nicht verfügbar', 'error'); return; }
+
+  const _ttsIconSpeak = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
+  const _ttsIconStop  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
+
+  // If already speaking this message — stop
+  if (_ttsSpeakingBtn === btn) {
+    window.speechSynthesis.cancel();
+    btn.classList.remove('tts-speaking');
+    btn.innerHTML = _ttsIconSpeak;
+    _ttsSpeakingBtn = null;
+    return;
+  }
+
+  // Stop any previous
+  if (_ttsSpeakingBtn) {
+    window.speechSynthesis.cancel();
+    _ttsSpeakingBtn.classList.remove('tts-speaking');
+    _ttsSpeakingBtn.innerHTML = _ttsIconSpeak;
+    _ttsSpeakingBtn = null;
+  }
+
+  const bubble = btn.closest('.message-body').querySelector('.message-bubble');
+  if (!bubble) return;
+  const rawText = stripMarkdown(bubble.innerText || bubble.textContent);
+  if (!rawText) return;
+
+  const utter = new SpeechSynthesisUtterance(rawText);
+  utter.lang = getTTSLang();
+  utter.rate = 0.95;
+  utter.pitch = 1;
+
+  _ttsSpeakingBtn = btn;
+  btn.classList.add('tts-speaking');
+  btn.innerHTML = _ttsIconStop;
+
+  utter.onend = () => {
+    btn.classList.remove('tts-speaking');
+    btn.innerHTML = _ttsIconSpeak;
+    if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
+  };
+  utter.onerror = () => {
+    btn.classList.remove('tts-speaking');
+    btn.innerHTML = _ttsIconSpeak;
+    if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
+  };
+
+  window.speechSynthesis.speak(utter);
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 6: ISLAMISCHER KALENDER & GEBETSZEITEN
+// ═══════════════════════════════════════════════
+// ── More menu ──────────────────────────────────────
+let _moreMenuOpen = false;
+function toggleMoreMenu() {
+  _moreMenuOpen = !_moreMenuOpen;
+  document.getElementById('more-dropdown').classList.toggle('hidden', !_moreMenuOpen);
+}
+function closeMoreMenu() {
+  _moreMenuOpen = false;
+  document.getElementById('more-dropdown')?.classList.add('hidden');
+}
+document.addEventListener('click', e => {
+  if (!_moreMenuOpen) return;
+  const dd = document.getElementById('more-dropdown');
+  const btn = document.getElementById('more-menu-btn');
+  if (dd && btn && !dd.contains(e.target) && !btn.contains(e.target)) closeMoreMenu();
+});
+
+let _prayerOpen = false;
+
+function togglePrayerWidget() {
+  const dd = document.getElementById('prayer-dropdown');
+  _prayerOpen = !_prayerOpen;
+  dd.classList.toggle('hidden', !_prayerOpen);
+  if (_prayerOpen) loadPrayerData();
+}
+
+// Close if clicking elsewhere
+document.addEventListener('click', e => {
+  if (!_prayerOpen) return;
+  const dd = document.getElementById('prayer-dropdown');
+  const btn = document.getElementById('prayer-btn');
+  if (dd && btn && !dd.contains(e.target) && !btn.contains(e.target)) {
+    _prayerOpen = false;
+    dd.classList.add('hidden');
+  }
+});
+
+async function loadPrayerData() {
+  const cacheKey = 'hf_prayer_cache';
+  const cacheTimeKey = 'hf_prayer_cache_time';
+  const cacheAge = Date.now() - (parseInt(sessionStorage.getItem(cacheTimeKey) || '0'));
+
+  if (cacheAge < 3600000 && sessionStorage.getItem(cacheKey)) {
+    renderPrayerData(JSON.parse(sessionStorage.getItem(cacheKey)));
+    return;
+  }
+
+  const hijriEl = document.getElementById('prayer-hijri');
+  const timesEl = document.getElementById('prayer-times-list');
+
+  // Load Hijri date
+  try {
+    const today = new Date();
+    const dd2 = String(today.getDate()).padStart(2,'0');
+    const mm = String(today.getMonth()+1).padStart(2,'0');
+    const yyyy = today.getFullYear();
+    const hijriRes = await fetch(`https://api.aladhan.com/v1/gToH?date=${dd2}-${mm}-${yyyy}`);
+    if (hijriRes.ok) {
+      const hijriData = await hijriRes.json();
+      const h = hijriData?.data?.hijri;
+      if (h && hijriEl) {
+        hijriEl.textContent = `${h.day} ${h.month?.en} ${h.year} H (${h.weekday?.en})`;
+      }
+    }
+  } catch(e) {
+    if (hijriEl) hijriEl.textContent = 'Hijri-Datum nicht verfügbar';
+  }
+
+  // Get location and prayer times
+  if (!navigator.geolocation) {
+    if (timesEl) timesEl.innerHTML = '<div class="prayer-loading">Geolocation nicht verfügbar</div>';
+    return;
+  }
+
+  if (timesEl) timesEl.innerHTML = '<div class="prayer-loading">Standort wird ermittelt…</div>';
+
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      const { latitude, longitude } = pos.coords;
+      const pRes = await fetch(`https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=3`);
+      if (!pRes.ok) throw new Error('API Fehler');
+      const pData = await pRes.json();
+      const timings = pData?.data?.timings;
+      if (!timings) throw new Error('Keine Daten');
+
+      const payload = { timings, date: new Date().toISOString() };
+      sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+      sessionStorage.setItem(cacheTimeKey, Date.now().toString());
+      renderPrayerData(payload);
+    } catch(err) {
+      if (timesEl) timesEl.innerHTML = `<div class="prayer-loading">Fehler: ${err.message}</div>`;
+    }
+  }, () => {
+    if (timesEl) timesEl.innerHTML = '<div class="prayer-loading">Standort verweigert. Bitte Zugriff erlauben.</div>';
+  });
+}
+
+function renderPrayerData(payload) {
+  const timesEl = document.getElementById('prayer-times-list');
+  if (!timesEl || !payload?.timings) return;
+
+  const prayers = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+
+  // Find next prayer
+  let nextPrayer = null;
+  let nextMins = Infinity;
+  for (const p of prayers) {
+    const t = payload.timings[p];
+    if (!t) continue;
+    const [h, m] = t.split(':').map(Number);
+    const pMins = h * 60 + m;
+    if (pMins > nowMins && pMins < nextMins) { nextMins = pMins; nextPrayer = p; }
+  }
+  if (!nextPrayer) nextPrayer = 'Fajr'; // wrap to next day
+
+  timesEl.innerHTML = prayers.map(p => {
+    const t = payload.timings[p] || '--:--';
+    const isNext = p === nextPrayer;
+    return `<div class="prayer-row${isNext ? ' next' : ''}">
+      <span class="prayer-name">${p}</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        ${isNext ? '<span class="prayer-next-badge">NÄCHSTES</span>' : ''}
+        <span class="prayer-time">${t}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 7: ANTWORT TEILEN
+// ═══════════════════════════════════════════════
+function shareMessage(btn) {
+  const chat = getActiveChat();
+  const bubble = btn.closest('.message-body').querySelector('.message-bubble');
+  if (!bubble) return;
+  const content = bubble.innerText || bubble.textContent;
+  const chatTitle = chat ? chat.title : 'Hanafi Fiqh Assistent';
+  const date = new Date().toLocaleDateString('de-DE');
+
+  const shareText = `Hanafi Fiqh Assistent\n${chatTitle} · ${date}\n\n${content}\n\n— HanafiKI App`;
+
+  if (navigator.share) {
+    navigator.share({ title: 'Hanafi Fiqh Assistent', text: shareText })
+      .then(() => showToast('Geteilt!', 'success'))
+      .catch(() => {});
+  } else {
+    navigator.clipboard.writeText(shareText).then(() => showToast('Kopiert! ✓', 'success'));
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  FEATURE 8: STATISTIKEN
+// ═══════════════════════════════════════════════
+function openStatsModal() {
+  const modal = document.getElementById('stats-modal');
+  const body = document.getElementById('stats-modal-body');
+  if (!modal || !body) return;
+
+  const chats = state.chats;
+  const totalChats = chats.length;
+  const allMessages = chats.flatMap(c => c.messages || []);
+  const totalMessages = allMessages.length;
+  const userMessages = allMessages.filter(m => m.role === 'user');
+  const totalWords = userMessages.reduce((acc, m) => acc + m.content.split(/\s+/).length, 0);
+
+  // Tag counts
+  const tagCounts = {};
+  ALL_TAGS.forEach(t => tagCounts[t] = 0);
+  chats.forEach(c => (c.tags || []).forEach(t => { if (tagCounts[t] !== undefined) tagCounts[t]++; }));
+  const tagEntries = Object.entries(tagCounts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const maxTagCount = tagEntries.length ? tagEntries[0][1] : 1;
+
+  // Most active chat
+  const mostActive = [...chats].sort((a, b) => (b.messages||[]).length - (a.messages||[]).length)[0];
+
+  // Provider breakdown (detect from message content or just count by active provider)
+  const providerLabel = { gemini: '🔵 Gemini', openai: '🟣 Grok', claude: '🟠 Claude', ollama: '🦙 Llama', dual: '⚡ Dual' };
+
+  body.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-number">${totalChats}</div>
+        <div class="stat-label">Chats gesamt</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">${totalMessages}</div>
+        <div class="stat-label">Nachrichten</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">${totalWords.toLocaleString('de-DE')}</div>
+        <div class="stat-label">Wörter gefragt</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">${providerLabel[state.provider] || state.provider}</div>
+        <div class="stat-label">Aktiver Anbieter</div>
+      </div>
+    </div>
+
+    ${mostActive ? `<div style="margin-bottom:16px;padding:10px 14px;background:var(--accent-dim);border:1px solid var(--border-accent);border-radius:var(--radius-sm);">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:4px;">Aktivster Chat</div>
+      <div style="font-size:13px;color:var(--text-primary);">${escHtml(mostActive.title)}</div>
+      <div style="font-size:11px;color:var(--text-muted);">${(mostActive.messages||[]).length} Nachrichten</div>
+    </div>` : ''}
+
+    ${tagEntries.length ? `<div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:10px;">Top Tags</div>
+      ${tagEntries.map(([tag, count]) => `
+        <div class="stat-bar-row">
+          <div class="stat-bar-label"><span>${tag}</span><span>${count}</span></div>
+          <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round((count/maxTagCount)*100)}%"></div></div>
+        </div>`).join('')}
+    </div>` : '<div style="font-size:12px;color:var(--text-muted);">Noch keine Tags vergeben.</div>'}
+  `;
+
+  modal.classList.remove('hidden');
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); }, { once: false });
 }
 
 // ═══════════════════════════════════════════════
@@ -5042,6 +5630,10 @@ function initKeyboardShortcuts() {
       closeChatPolicy();
       closeSearch();
       closeNewChatModal();
+      closeNoteModal();
+      document.getElementById('stats-modal')?.classList.add('hidden');
+      document.getElementById('prayer-dropdown')?.classList.add('hidden');
+      _prayerOpen = false;
       document.querySelectorAll('.inline-confirm').forEach(el => el.remove());
       return;
     }
@@ -5074,5 +5666,4 @@ function initKeyboardShortcuts() {
 
 </script>
 </body>
-</html>
 </html>
