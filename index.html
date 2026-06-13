@@ -80,12 +80,7 @@
         overlay.remove();
         Array.from(document.body.children).forEach(el => el.style.visibility = '');
         document.body.style.overflow = '';
-        // Beim ersten Login Madhab-Auswahl zeigen
-        if (!localStorage.getItem('hf_madhab')) {
-          setTimeout(() => {
-            if (typeof showMadhabModal === 'function') showMadhabModal();
-          }, 600);
-        }
+        // Madhab wird im Intro-Wizard ausgewählt (kein separates Modal nötig)
       }, 380);
     }
   }
@@ -515,7 +510,7 @@
       if (changed) {
         const t = document.createElement('div');
         t.style.cssText = 'position:fixed;bottom:90px;right:16px;background:rgba(92,187,138,0.15);border:1px solid rgba(92,187,138,0.4);color:#5cbb8a;padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;pointer-events:none;';
-        t.textContent = '☁️ Sync von anderem Gerät';
+        t.textContent = '☁ Sync von anderem Gerät';
         document.body.appendChild(t);
         setTimeout(() => t.remove(), 3000);
       }
@@ -616,7 +611,7 @@
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="no-referrer">
-<title>Hanafi Fiqh Assistent — Premium</title>
+<title>IlmAI — Premium</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -1348,6 +1343,8 @@ body {
   max-width: 780px; margin: 6px auto 0;
   font-size: 10.5px; color: var(--text-muted); text-align: center; letter-spacing: 0.2px;
 }
+.input-hint .keyboard-hint { display: inline; }
+@media (max-width: 600px) { .input-hint .keyboard-hint { display: none; } }
 
 /* ═══════════════════════════════════════════════
    MODAL SYSTEM — Redesigned
@@ -2458,6 +2455,8 @@ body {
 }
 /* ── Prayer tabs ── */
 .prayer-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
+.mobile-only { display: none !important; }
+@media (max-width: 600px) { .mobile-only { display: flex !important; } .desktop-only { display: none !important; } }
 .prayer-tab {
   flex: 1; padding: 7px 4px; font-size: 10px; font-weight: 600;
   color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent;
@@ -2507,7 +2506,7 @@ body {
   transition: transform 0.8s cubic-bezier(0.34,1.56,0.64,1);
 }
 .qibla-arrow::after {
-  content: '☪️';
+  content: '▲';
   position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
   font-size: 13px; line-height: 1;
 }
@@ -2661,7 +2660,7 @@ body {
   <!-- Logo -->
   <div style="text-align:center;margin-bottom:28px;">
     <div style="margin-bottom:14px;filter:drop-shadow(0 0 24px rgba(212,172,100,0.5));animation:pulse 3s ease infinite"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="1.2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
-    <div style="font-size:23px;font-weight:700;color:#f0ebe0;letter-spacing:0.3px;">Hanafi Fiqh Assistent</div>
+    <div style="font-size:23px;font-weight:700;color:#f0ebe0;letter-spacing:0.3px;">IlmAI</div>
     <div style="font-size:12px;color:#5e5850;margin-top:5px;letter-spacing:1.5px;text-transform:uppercase;">Privater Zugang</div>
   </div>
 
@@ -2765,8 +2764,10 @@ body {
       <!-- ── STEP 1: Sprache + Begrüßung ── -->
       <div class="_istep active" id="_istep_1">
         <div style="text-align:center;margin-bottom:22px;">
-          <div style="font-size:44px;margin-bottom:10px;filter:drop-shadow(0 0 18px rgba(212,172,100,0.3));">☪️</div>
-          <div id="_intro_title" style="font-size:22px;font-weight:700;color:#f0ebe0;letter-spacing:-0.4px;">Willkommen bei HanafiKI</div>
+          <div style="margin-bottom:10px;filter:drop-shadow(0 0 18px rgba(212,172,100,0.3));">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="1.2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/><circle cx="15.5" cy="9.5" r="1" fill="#d4ac64"/></svg>
+          </div>
+          <div id="_intro_title" style="font-size:22px;font-weight:700;color:#f0ebe0;letter-spacing:-0.4px;">Willkommen bei IlmAI</div>
           <div id="_intro_sub"   style="font-size:13px;color:#9b9080;margin-top:5px;line-height:1.5;">Dein KI-Assistent für islamisches Recht</div>
         </div>
         <!-- Sprachauswahl -->
@@ -2820,7 +2821,7 @@ body {
       <!-- ── STEP 3: Rechtsschule wählen ── -->
       <div class="_istep" id="_istep_3">
         <div style="text-align:center;margin-bottom:18px;">
-          <div style="font-size:28px;margin-bottom:8px;">⚖️</div>
+          <div style="margin-bottom:8px;"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="1.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
           <div id="_intro_madh_title" style="font-size:17px;font-weight:700;color:#f0ebe0;">Deine Rechtsschule</div>
           <div id="_intro_madh_sub"   style="font-size:12px;color:#6b6560;margin-top:4px;">Kann später in den Einstellungen geändert werden</div>
         </div>
@@ -2847,7 +2848,7 @@ body {
       <!-- ── STEP 4: Newsletter + Abschluss ── -->
       <div class="_istep" id="_istep_4">
         <div style="text-align:center;margin-bottom:20px;">
-          <div style="font-size:36px;margin-bottom:10px;">✨</div>
+          <div style="margin-bottom:10px;"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="1.3"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
           <div id="_intro_finish_title" style="font-size:18px;font-weight:700;color:#f0ebe0;">Alles bereit!</div>
           <div id="_intro_finish_sub"   style="font-size:12.5px;color:#7a7068;margin-top:5px;line-height:1.5;">
             Du kannst jetzt deine erste Frage stellen.
@@ -3076,8 +3077,8 @@ body {
     <button id="toggle-sidebar" onclick="toggleSidebar()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
-    <div id="chat-title-display">Hanafi Fiqh Assistent</div>
-    <span class="provider-badge" id="provider-badge">Hanafi AI</span>
+    <div id="chat-title-display">IlmAI</div>
+    <span class="provider-badge" id="provider-badge">IlmAI</span>
     <button class="topbar-btn" onclick="openSearch()" title="Suchen (Strg+F)" id="search-btn">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     </button>
@@ -3117,10 +3118,14 @@ body {
 
     <!-- Tabs -->
     <div class="prayer-tabs">
-      <button class="prayer-tab active" id="ptab-times"   onclick="showPrayerTab('times')">☪️ Gebetszeiten</button>
-      <button class="prayer-tab"        id="ptab-qibla"   onclick="showPrayerTab('qibla')">🧭 Qibla</button>
-      <button class="prayer-tab"        id="ptab-mosque"  onclick="showPrayerTab('mosque')">🕌 Moschee</button>
-      <button class="prayer-tab"        id="ptab-tasbeeh" onclick="showPrayerTab('tasbeeh')">📿 Tasbeeh</button>
+      <button class="prayer-tab active" id="ptab-times"   onclick="showPrayerTab('times')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;vertical-align:-1px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>Gebetszeiten</span></button>
+      <button class="prayer-tab mobile-only" id="ptab-qibla" onclick="showPrayerTab('qibla')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;vertical-align:-1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg><span>Qibla</span></button>
+      <button class="prayer-tab"        id="ptab-mosque"  onclick="showPrayerTab('mosque')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;vertical-align:-1px"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>Moschee</span></button>
+      <button class="prayer-tab"        id="ptab-tasbeeh" onclick="showPrayerTab('tasbeeh')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;vertical-align:-1px"><circle cx="12" cy="12" r="3"/><path d="M12 3a9 9 0 0 1 0 18"/><path d="M12 3a9 9 0 0 0 0 18"/></svg><span>Tasbeeh</span></button>
     </div>
 
     <!-- Tab: Gebetszeiten -->
@@ -3167,7 +3172,9 @@ body {
         <div class="tasbeeh-count" id="tsb-count">0</div>
         <div class="tasbeeh-progress"><div class="tasbeeh-progress-fill" id="tsb-fill" style="width:0%"></div></div>
         <div class="tasbeeh-meta" id="tsb-meta">0 / 33</div>
-        <button class="tasbeeh-tap" id="tsb-tap" onclick="tasbeehTap()">📿</button>
+        <button class="tasbeeh-tap" id="tsb-tap" onclick="tasbeehTap()">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="4" r="1.5"/><path d="M12 5.5C12 8 14 9 14 12" stroke-dasharray="2 2"/><path d="M12 5.5C12 8 10 9 10 12" stroke-dasharray="2 2"/></svg>
+        </button>
         <div style="display:flex;gap:8px;justify-content:center;margin-top:2px;">
           <button class="tasbeeh-reset" onclick="tasbeehReset()">Zurücksetzen</button>
           <button class="tasbeeh-reset" onclick="tasbeehSkip()" style="border-color:var(--border-accent);color:var(--accent);">Überspringen →</button>
@@ -3197,7 +3204,7 @@ body {
   <!-- Drag Overlay -->
   <div id="drag-overlay" class="hidden">
     <div class="drag-overlay-content">
-      <span class="drag-overlay-icon">📎</span>
+      <span class="drag-overlay-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>
       <div class="drag-overlay-text">Dateien hier ablegen</div>
       <div class="drag-overlay-sub">Bilder, PDF, Text, JSON…</div>
     </div>
@@ -3206,9 +3213,10 @@ body {
   <div id="chat-area">
     <div id="welcome-screen">
       <div class="welcome-ornament">بِسْمِ اللهِ</div>
-      <div class="welcome-title ai-display-name">Hanafi Fiqh KI-Assistent</div>
-      <p class="welcome-sub">Fragen zur hanafitischen Rechtslehre — beantwortet auf Basis klassischer Quellen wie Al-Hidayah, Radd al-Muhtar und weiterer anerkannter Werke.</p>
-      <p style="margin-top:-14px;margin-bottom:24px;font-size:11px;color:var(--danger);letter-spacing:0.3px;">⛔ Zugang rechtlich verboten — Nur für autorisierte Inhaber</p>
+      <div class="welcome-title ai-display-name">IlmAI</div>
+      <p class="welcome-sub">Dein KI-Assistent für islamisches Recht — beantwortet auf Basis klassischer Quellen der Rechtsschulen.</p>
+      <p style="margin-top:-14px;margin-bottom:24px;font-size:11px;color:var(--danger);letter-spacing:0.3px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:3px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Zugang rechtlich verboten — Nur für autorisierte Inhaber</p>
       <div class="welcome-divider">
         <div class="welcome-divider-line"></div>
         <div class="welcome-divider-text">Vorschläge</div>
@@ -3229,7 +3237,7 @@ body {
       <button class="input-tool-btn" onclick="document.getElementById('file-input').click()" title="Datei/Bild anhängen" id="attach-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
-      <textarea id="message-input" placeholder="Frage zur hanafitischen Rechtslehre stellen…" rows="1" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCounter()"></textarea>
+      <textarea id="message-input" placeholder="Frage zum islamischen Recht stellen…" rows="1" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCounter()"></textarea>
       <div class="input-tools">
         <button class="input-tool-btn" id="mic-btn" onclick="toggleSpeechToText()" title="Spracheingabe">
           <svg id="mic-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
@@ -3240,7 +3248,7 @@ body {
       </div>
     </div>
     <div class="input-hint" style="display:flex;align-items:center;justify-content:center;gap:10px;">
-      <span>Enter zum Senden · Shift+Enter Zeilenumbruch · Strg+F Suchen · Strg+N Neuer Chat</span>
+      <span class="keyboard-hint">Enter zum Senden · Shift+Enter Zeilenumbruch · Strg+F Suchen · Strg+N Neuer Chat</span>
       <span class="char-counter" id="char-counter">0 / 8000</span>
     </div>
   </div>
@@ -3358,7 +3366,7 @@ body {
             <div style="display:flex;flex-direction:column;gap:6px;" id="dual-provider-list">
               <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all var(--transition);" onmouseover="this.style.borderColor='var(--border-accent)'" onmouseout="this.style.borderColor='var(--border)'">
                 <input type="checkbox" id="dual-use-gemini" style="accent-color:var(--accent);width:15px;height:15px;" ${localStorage.getItem('hf_dualGemini')!=='0'?'checked':''}>
-                <span style="font-size:13px;">🔵 <strong>Google Gemini</strong></span>
+                <span style="font-size:13px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="#4285F4" style="vertical-align:-1px;margin-right:4px"><circle cx="12" cy="12" r="10"/></svg><strong>Google Gemini</strong></span>
                 <span style="margin-left:auto;font-size:10px;color:var(--text-muted);">braucht API-Key</span>
               </label>
               <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all var(--transition);" onmouseover="this.style.borderColor='var(--border-accent)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -3685,7 +3693,7 @@ body {
   <div class="modal" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title">
-        <div class="modal-title-icon" id="new-chat-emoji-display" style="font-size:18px;">💬</div>
+        <div class="modal-title-icon" id="new-chat-emoji-display" style="font-size:18px;">◆</div>
         Neuer Chat
       </div>
       <button class="modal-close" onclick="closeNewChatModal()">✕</button>
@@ -4147,20 +4155,20 @@ function setActiveChat(id) {
 }
 
 // Neuer Chat → erst Modal öffnen
-const NEW_CHAT_EMOJIS = ['💬','📖','🕌','🌙','☽','⭐','📚','🤲','🌿','🗓️','💡','📝','🔍','⚖️','🧭','🌺'];
-let _newChatSelectedEmoji = '💬';
+const NEW_CHAT_EMOJIS = ['◆','◇','○','●','▲','△','▼','▽','■','□','★','☆','◈','◉','◎','❖'];
+let _newChatSelectedEmoji = '◆';
 
 function newChat() {
-  _newChatSelectedEmoji = '💬';
+  _newChatSelectedEmoji = '◆';
   _newChatSelectedTags = [];
   document.getElementById('new-chat-name').value = '';
   document.getElementById('new-chat-instruction').value = '';
-  document.getElementById('new-chat-emoji-display').textContent = '💬';
+  document.getElementById('new-chat-emoji-display').textContent = '◆';
 
   // Emoji-Auswahl aufbauen
   const row = document.getElementById('new-chat-emoji-row');
   row.innerHTML = NEW_CHAT_EMOJIS.map(e =>
-    `<button class="chat-emoji-btn${e==='💬'?' selected':''}" onclick="selectNewChatEmoji(this,'${e}')">${e}</button>`
+    `<button class="chat-emoji-btn${e==='◆'?' selected':''}" onclick="selectNewChatEmoji(this,'${e}')">${e}</button>`
   ).join('');
 
   // Tag-Auswahl aufbauen
@@ -4312,7 +4320,7 @@ function buildMessageHtml(msg) {
   let attachHtml = '';
   if (isUser && msg.attachments && msg.attachments.length) {
     const chips = msg.attachments.map(a => {
-      const icon = a.isImage ? '🖼' : a.isPDF ? '📄' : '📎';
+      const icon = a.isImage ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' : a.isPDF ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' : '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
       return `<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(212,172,100,0.10);border:1px solid rgba(212,172,100,0.28);border-radius:7px;padding:3px 9px;font-size:11.5px;color:var(--accent);max-width:220px;overflow:hidden;">${icon} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(a.name)}</span></div>`;
     }).join('');
     attachHtml = `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">${chips}</div>`;
@@ -4933,18 +4941,23 @@ function getSuggestionSlot() {
   return Math.floor(now.getTime() / (1000 * 60 * 60));
 }
 
+const OWNER_ONLY_TOPICS = new Set(['Aqeedah','Qadar','Nubuwwa','Quran','Aql','Iman','Khilafa','Nizam','Siyar','Hukm']);
+
 function renderSuggestions() {
   const container = document.getElementById('welcome-suggestions');
   if (!container) return;
 
+  const isOwner = window._fbUser?.email === 'tanyelekici88@gmail.com';
+  const pool = isOwner ? SUGGESTION_POOL : SUGGESTION_POOL.filter(s => !OWNER_ONLY_TOPICS.has(s.topic));
+
   const slot = getSuggestionSlot();
-  const total = SUGGESTION_POOL.length;
+  const total = pool.length;
 
   // 4 verschiedene Fragen aus dem Pool picken, deterministisch per Stunde
   const picked = [];
   for (let i = 0; i < 4; i++) {
     const idx = (slot * 7 + i * 13) % total; // Streumuster
-    picked.push(SUGGESTION_POOL[idx]);
+    picked.push(pool[idx]);
   }
 
   container.innerHTML = picked.map((s, i) =>
@@ -5139,10 +5152,14 @@ function applyLang(lang) {
   if (inp) inp.placeholder = T('inputPlaceholder');
   const ncb = document.getElementById('new-chat-text');
   if (ncb) ncb.textContent = T('newChat');
-  // Prayer-Widget-Tabs
+  // Prayer-Widget-Tabs (nur <span> aktualisieren, SVG-Icons bleiben erhalten)
+  const tabKeys = { times:'prayerTab', qibla:'qiblaTab', mosque:'mosqueTab', tasbeeh:'tasbeehTab' };
+  const tabLabels = { de:{times:'Gebetszeiten',qibla:'Qibla',mosque:'Moschee',tasbeeh:'Tasbeeh'}, en:{times:'Prayer Times',qibla:'Qibla',mosque:'Mosque',tasbeeh:'Tasbeeh'}, tr:{times:'Namaz Vakitleri',qibla:'Kıble',mosque:'Cami',tasbeeh:'Tesbih'}, ar:{times:'أوقات الصلاة',qibla:'القبلة',mosque:'المساجد',tasbeeh:'التسبيح'} };
+  const tl = tabLabels[lang] || tabLabels.de;
   ['times','qibla','mosque','tasbeeh'].forEach(t => {
     const el = document.getElementById('ptab-' + t);
-    if (el) el.textContent = T(t === 'times' ? 'prayerTab' : t === 'qibla' ? 'qiblaTab' : t === 'mosque' ? 'mosqueTab' : 'tasbeehTab');
+    const sp = el && el.querySelector('span');
+    if (sp) sp.textContent = tl[t];
   });
   // Moschee-Buttons
   const mb = document.getElementById('mosque-btn-main');
@@ -6191,7 +6208,7 @@ function handleFileAttach(event) {
     attachedFiles.push(file);
 
     // Chip im Vorschau-Bereich zeigen
-    const icon = isImage ? '🖼' : isPDF ? '📄' : '📎';
+    const icon = isImage ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' : isPDF ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' : '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     const tag = document.createElement('div');
     tag.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg-tertiary);border:1px solid var(--border-accent);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--accent);max-width:220px;';
     tag.dataset.filename = file.name;
@@ -6995,11 +7012,11 @@ function renderPrayerData(payload) {
 
   // Erweiterte Zeiten
   const extraDefs = [
-    { key: 'Imsak',     label: T('imsak'),     icon: '🌙' },
-    { key: 'Sunrise',   label: T('sunrise'),   icon: '🌅' },
-    { key: 'Midnight',  label: T('midnight'),  icon: '🌃' },
-    { key: 'Firstthird',label: T('firstthird'),icon: '✨' },
-    { key: 'Lastthird', label: T('lastthird'), icon: '🕌' },
+    { key: 'Imsak',     label: T('imsak'),     icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>' },
+    { key: 'Sunrise',   label: T('sunrise'),   icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>' },
+    { key: 'Midnight',  label: T('midnight'),  icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 12A5.5 5.5 0 1 1 12 6.5 7 7 0 0 0 17.5 12z"/></svg>' },
+    { key: 'Firstthird',label: T('firstthird'),icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>' },
+    { key: 'Lastthird', label: T('lastthird'), icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' },
   ];
   const extraRows = extraDefs
     .filter(d => tim[d.key])
