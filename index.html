@@ -24,7 +24,27 @@
   };
 
   // Owner-Email (für Aqeedah/Politik-Freischaltung):
-  const ALLOWED_EMAILS = ['tanyelekici88@gmail.com']; // nur noch für Owner-Check genutzt
+  const ALLOWED_EMAILS = ['tanyelekici88@gmail.com'];
+  const OWNER_EMAIL    = 'tanyelekici88@gmail.com';
+
+  // ── Berechtigungssystem ──────────────────────────
+  window._userPermissions = {};
+  window.isOwner = function() { return window._fbUser?.email === OWNER_EMAIL; };
+  window.hasPermission = function(key) {
+    if (window.isOwner()) return true;
+    return window._userPermissions[key] === true;
+  };
+  window._emailToDocId = function(email) {
+    return email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  };
+  window._loadUserPermissions = async function(email) {
+    if (!_db || !email) return;
+    try {
+      const doc = await _db.collection('grantedAccess').doc(_emailToDocId(email)).get();
+      window._userPermissions = doc.exists ? (doc.data().permissions || {}) : {};
+    } catch(e) { window._userPermissions = {}; }
+    if (typeof renderSuggestions === 'function') renderSuggestions();
+  };
   // ════════════════════════════════════════════════════
 
   // Firebase initialisieren
@@ -63,6 +83,7 @@
           _loadFromFirestore(user.uid).then(() => {
             _revealApp();
             setTimeout(() => _startRealtimeSync(user.uid), 500);
+            setTimeout(() => { if (typeof _checkAnnouncement === 'function') _checkAnnouncement(); }, 2000);
           });
         } else { sessionStorage.removeItem(SESSION_KEY); location.reload(); }
       });
@@ -138,6 +159,7 @@
     _loadFromFirestore(user.uid).then(() => {
       setTimeout(_revealApp, 1000);
       setTimeout(() => _startRealtimeSync(user.uid), 1500);
+      setTimeout(() => { if (typeof _checkAnnouncement === 'function') _checkAnnouncement(); }, 2500);
     });
   }
 
@@ -453,6 +475,10 @@
         if (data.newsletter !== undefined) {
           localStorage.setItem('hf_newsletter_consent', data.newsletter ? '1' : '0');
         }
+      }
+      // Berechtigungen laden (für Nicht-Owner aus grantedAccess-Collection)
+      if (window._fbUser?.email && !window.isOwner()) {
+        await window._loadUserPermissions(window._fbUser.email);
       }
     } catch(e) { console.warn('Firestore load:', e); }
   }
@@ -1606,8 +1632,10 @@ body {
   max-width: 380px;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-#toast.error { border-color: rgba(224,92,92,0.5); background: rgba(224,92,92,0.08); color: #f08080; }
+#toast.error   { border-color: rgba(224,92,92,0.5);  background: rgba(224,92,92,0.08);  color: #f08080; }
 #toast.success { border-color: rgba(92,187,138,0.5); background: rgba(92,187,138,0.08); color: #7dde9a; }
+#toast.info    { border-color: rgba(212,172,100,0.5); background: rgba(212,172,100,0.08); color: #d4ac64; }
+#toast-icon svg { flex-shrink: 0; }
 
 /* Lock screen removed */
 
@@ -3553,6 +3581,136 @@ body {
         <div id="timestamp-toggle" class="toggle-switch on"></div>
         <div id="settings-tab-advanced"></div>
       </div>
+
+      <!-- ═══════════════════════════════════════════
+           OWNER ADMIN PANEL — nur für tanyelekici88@gmail.com
+      ═══════════════════════════════════════════ -->
+      <div id="owner-panel" style="display:none;margin-top:18px;border-top:1px solid var(--border-accent);padding-top:18px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+          <div style="background:rgba(212,172,100,0.12);border:1px solid rgba(212,172,100,0.3);border-radius:8px;padding:5px 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#d4ac64;">Owner-Bereich</div>
+            <div style="font-size:10px;color:var(--text-muted);">Nur du siehst diesen Bereich</div>
+          </div>
+        </div>
+
+        <!-- 1. BENUTZERVERWALTUNG -->
+        <div class="settings-section" style="margin-bottom:0;background:rgba(212,172,100,0.04);border:1px solid rgba(212,172,100,0.12);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+          <div class="settings-section-title" style="color:#d4ac64;margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Benutzerverwaltung
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <input id="admin-email-input" class="form-input" type="email" placeholder="user@example.com" style="flex:1;font-size:12px;" oninput="adminClearStatus()">
+            <button onclick="adminLoadUser()" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--text-secondary);border-radius:8px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap;">Laden</button>
+          </div>
+          <div id="admin-user-panel" style="display:none;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Berechtigungen für diesen Nutzer:</div>
+            <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="perm-aqeedah" style="accent-color:#d4ac64;width:14px;height:14px;">
+                <span style="color:var(--text-secondary);">Aqeedah (Theologie &amp; Glaubensfragen)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="perm-siyasa" style="accent-color:#d4ac64;width:14px;height:14px;">
+                <span style="color:var(--text-secondary);">Siyasa (Politik &amp; Staatswesen)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="perm-premium" style="accent-color:#d4ac64;width:14px;height:14px;">
+                <span style="color:var(--text-secondary);">Premium (zukünftige Premiumfunktionen)</span>
+              </label>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="adminSavePermissions()" style="flex:1;background:rgba(212,172,100,0.15);border:1px solid rgba(212,172,100,0.4);color:#d4ac64;border-radius:8px;padding:7px;font-size:12px;font-weight:600;cursor:pointer;">Speichern</button>
+              <button onclick="adminRevokeAll()" style="background:rgba(224,92,92,0.1);border:1px solid rgba(224,92,92,0.3);color:var(--danger);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;">Alles entziehen</button>
+            </div>
+          </div>
+          <div id="admin-status" style="font-size:11px;color:var(--text-muted);margin-top:6px;min-height:16px;"></div>
+        </div>
+
+        <!-- 2. KI-PARAMETER -->
+        <div class="settings-section" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+          <div class="settings-section-title" style="margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+            KI-Parameter (Owner)
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label">Temperatur: <span id="temp-label">0.7</span></label>
+            <input type="range" id="owner-temp-slider" min="0.1" max="1.0" step="0.05" value="0.7"
+              style="width:100%;accent-color:#d4ac64;margin-top:4px;"
+              oninput="document.getElementById('temp-label').textContent=parseFloat(this.value).toFixed(2);localStorage.setItem('hf_aiTemp',this.value);">
+            <div class="form-hint">Niedrig = präziser &amp; sachlicher · Hoch = kreativer &amp; ausführlicher</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">KI-Persönlichkeitsname (in Antworten)</label>
+            <input id="owner-ai-name" class="form-input" type="text" placeholder="IlmAI" style="font-size:12px;"
+              oninput="localStorage.setItem('hf_aiPersonalityName',this.value)">
+            <div class="form-hint">Wird im System-Prompt als Name der KI verwendet</div>
+          </div>
+        </div>
+
+        <!-- 3. SYSTEM-PROMPT-ANHANG -->
+        <div class="settings-section" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+          <div class="settings-section-title" style="margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            System-Prompt-Anhang
+          </div>
+          <textarea id="owner-sys-prompt" class="form-input" rows="3" placeholder="Zusätzliche Anweisung für die KI (optional)…" style="font-size:11px;resize:vertical;font-family:inherit;"
+            oninput="localStorage.setItem('hf_ownerSysPrompt',this.value)"></textarea>
+          <div class="form-hint">Wird an das Ende jedes System-Prompts angehängt. Nur du kannst das setzen.</div>
+        </div>
+
+        <!-- 4. SYSTEM-ANKÜNDIGUNG -->
+        <div class="settings-section" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+          <div class="settings-section-title" style="margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            Ankündigung an alle Nutzer
+          </div>
+          <input id="owner-announcement" class="form-input" type="text" placeholder="Nachricht für alle Nutzer beim nächsten App-Start…" style="font-size:12px;margin-bottom:8px;">
+          <button onclick="adminSaveAnnouncement()" style="background:rgba(212,172,100,0.12);border:1px solid rgba(212,172,100,0.3);color:#d4ac64;border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;width:100%;">Ankündigung veröffentlichen</button>
+          <div class="form-hint">Wird allen Benutzern einmalig als Benachrichtigung angezeigt</div>
+        </div>
+
+        <!-- 5. ZUGANGSCODE ÄNDERN -->
+        <div class="settings-section" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+          <div class="settings-section-title" style="margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Zugangscode ändern
+          </div>
+          <div style="display:flex;gap:8px;">
+            <input id="owner-new-code" class="form-input" type="password" placeholder="Neuer Zugangscode" style="flex:1;font-size:12px;">
+            <button onclick="adminChangeAccessCode()" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--text-secondary);border-radius:8px;padding:0 12px;font-size:11px;cursor:pointer;white-space:nowrap;">Setzen</button>
+          </div>
+          <div class="form-hint">Ändert den Hash-Zugangscode für alle Nutzer</div>
+        </div>
+
+        <!-- 6. STATISTIK & NEWSLETTER -->
+        <div class="settings-section" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
+          <div class="settings-section-title" style="margin-bottom:12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-1px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            App-Statistik &amp; Newsletter
+          </div>
+          <div id="admin-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+            <div style="background:var(--bg-tertiary);border-radius:8px;padding:10px;text-align:center;">
+              <div id="stat-users" style="font-size:22px;font-weight:700;color:#d4ac64;">–</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Nutzer gesamt</div>
+            </div>
+            <div style="background:var(--bg-tertiary);border-radius:8px;padding:10px;text-align:center;">
+              <div id="stat-newsletter" style="font-size:22px;font-weight:700;color:#d4ac64;">–</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Newsletter</div>
+            </div>
+          </div>
+          <button onclick="adminLoadStats()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-secondary);border-radius:8px;padding:7px;font-size:12px;cursor:pointer;width:100%;margin-bottom:8px;">Statistik laden</button>
+          <div id="admin-newsletter-list" style="display:none;max-height:140px;overflow-y:auto;font-size:11px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:8px;"></div>
+        </div>
+
+      </div>
+
+      <!-- Versteckte Toggle-IDs für JS-Kompatibilität (weiter unten) -->
     </div>
 
     <div class="modal-footer">
@@ -4941,14 +5099,20 @@ function getSuggestionSlot() {
   return Math.floor(now.getTime() / (1000 * 60 * 60));
 }
 
-const OWNER_ONLY_TOPICS = new Set(['Aqeedah','Qadar','Nubuwwa','Quran','Aql','Iman','Khilafa','Nizam','Siyar','Hukm']);
+const AQEEDAH_TOPICS = new Set(['Aqeedah','Qadar','Nubuwwa','Quran','Aql','Iman']);
+const SIYASA_TOPICS  = new Set(['Khilafa','Nizam','Siyar','Hukm']);
 
 function renderSuggestions() {
   const container = document.getElementById('welcome-suggestions');
   if (!container) return;
 
-  const isOwner = window._fbUser?.email === 'tanyelekici88@gmail.com';
-  const pool = isOwner ? SUGGESTION_POOL : SUGGESTION_POOL.filter(s => !OWNER_ONLY_TOPICS.has(s.topic));
+  const canAqeedah = window.hasPermission('aqeedah');
+  const canSiyasa  = window.hasPermission('siyasa');
+  const pool = SUGGESTION_POOL.filter(s => {
+    if (AQEEDAH_TOPICS.has(s.topic)) return canAqeedah;
+    if (SIYASA_TOPICS.has(s.topic))  return canSiyasa;
+    return true;
+  });
 
   const slot = getSuggestionSlot();
   const total = pool.length;
@@ -5035,8 +5199,10 @@ async function callGeminiAPI(messages, policy, files = []) {
 // ═══════════════════════════════════════════════
 // ── Settings-Helper ──────────────────────────────
 function getSettingTemperature() {
-  const val = parseFloat(localStorage.getItem('hf_aiTemp') || '2');
-  return val / 10;
+  const raw = parseFloat(localStorage.getItem('hf_aiTemp'));
+  if (isNaN(raw)) return 0.7;
+  // Werte >= 1.5 sind im alten Format (z.B. 7 → 0.7), sonst direkt als Dezimal
+  return raw >= 1.5 ? raw / 10 : raw;
 }
 function getSettingMaxTokens() {
   const map = { kurz: 1024, mittel: 4096, lang: 8192, 'sehr-lang': 16384 };
@@ -5227,12 +5393,23 @@ function buildSystemPrompt(policy) {
   const madhabNames = { hanafi: 'Hanafitisch', maliki: 'Malikitisch', shafii: "Schafiitisch", hanbali: 'Hanbalitisch' };
   prompt += `\n\nSTANDARD-RECHTSSCHULE DES BENUTZERS: ${madhabNames[madhab] || 'Hanafitisch'}. Wenn keine Rechtsschule explizit angegeben wird, antworte standardmäßig nach dieser Schule.`;
 
-  // Aqeedah/Politik-Sperre für alle außer dem Eigentümer
-  const ownerEmail = 'tanyelekici88@gmail.com';
-  const userEmail = (window._fbUser?.email || '').toLowerCase().trim();
-  if (userEmail !== ownerEmail) {
-    prompt += `\n\nBESCHRÄNKUNG FÜR DIESEN BENUTZER: Du darfst AUSSCHLIESSLICH Fragen aus Domäne 1 (Fiqh / Rechtsschulfragen) beantworten. Fragen zu Domäne 2 (Aqeedah / Theologie / Glaubenslehre) und Domäne 3 (Politik / Staatsform / Wirtschaft / Kalifat / Siyasa) sind für diesen Benutzer gesperrt. Wenn eine solche Frage gestellt wird, antworte genau mit: "Zu diesem Thema kann ich mich in diesem Rahmen nicht äußern. Bitte wende dich an einen qualifizierten islamischen Gelehrten."`;
+  // KI-Persönlichkeitsname (Owner-Einstellung)
+  const aiName = localStorage.getItem('hf_aiPersonalityName') || 'IlmAI';
+  prompt = prompt.replace(/\bIlmAI\b/g, aiName);
+
+  // Domänen-Zugangskontrolle
+  const canAqeedah = window.hasPermission('aqeedah');
+  const canSiyasa  = window.hasPermission('siyasa');
+  const locked = [];
+  if (!canAqeedah) locked.push('Domäne 2 (Aqeedah / Theologie / Glaubenslehre)');
+  if (!canSiyasa)  locked.push('Domäne 3 (Politik / Staatsform / Wirtschaft / Kalifat / Siyasa)');
+  if (locked.length) {
+    prompt += `\n\nBESCHRÄNKUNG FÜR DIESEN BENUTZER: Du darfst AUSSCHLIESSLICH Fragen aus Domäne 1 (Fiqh / Rechtsschulfragen) beantworten. Folgende Bereiche sind für diesen Benutzer gesperrt: ${locked.join(' und ')}. Wenn eine solche Frage gestellt wird, antworte mit: "Zu diesem Thema bin ich in diesem Konto nicht freigeschaltet. Bitte wende dich an einen qualifizierten islamischen Gelehrten."`;
   }
+
+  // Owner-Sys-Prompt-Anhang
+  const ownerAppend = window.isOwner() ? (localStorage.getItem('hf_ownerSysPrompt') || '') : '';
+  if (ownerAppend.trim()) prompt += `\n\nOWNER-ZUSATZANWEISUNG:\n${ownerAppend.trim()}`;
 
   prompt += getSettingStyleNote();
   if (!policy) return prompt;
@@ -5530,10 +5707,173 @@ function openSettings() {
   const fsRange = document.getElementById('font-size-range');
   if (fsRange) { fsRange.value = fs; const fsVal = document.getElementById('font-size-val'); if(fsVal) fsVal.textContent = fs + 'px'; }
 
+  // Owner-Panel anzeigen / befüllen
+  const ownerPanel = document.getElementById('owner-panel');
+  if (ownerPanel) {
+    ownerPanel.style.display = window.isOwner() ? 'block' : 'none';
+    if (window.isOwner()) {
+      const tempSlider = document.getElementById('owner-temp-slider');
+      const tempLabel  = document.getElementById('temp-label');
+      const savedTemp  = parseFloat(localStorage.getItem('hf_aiTemp') || '0.7');
+      if (tempSlider) tempSlider.value = savedTemp;
+      if (tempLabel)  tempLabel.textContent = savedTemp.toFixed(2);
+      const aiNameEl = document.getElementById('owner-ai-name');
+      if (aiNameEl) aiNameEl.value = localStorage.getItem('hf_aiPersonalityName') || '';
+      const sysPromptEl = document.getElementById('owner-sys-prompt');
+      if (sysPromptEl) sysPromptEl.value = localStorage.getItem('hf_ownerSysPrompt') || '';
+    }
+  }
+
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
 function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+
+// ═══════════════════════════════════════════════
+//  OWNER ADMIN FUNKTIONEN
+// ═══════════════════════════════════════════════
+function adminClearStatus() {
+  const s = document.getElementById('admin-status');
+  if (s) s.textContent = '';
+  const p = document.getElementById('admin-user-panel');
+  if (p) p.style.display = 'none';
+}
+
+async function adminLoadUser() {
+  if (!window.isOwner() || !window._fbDb) return;
+  const email = document.getElementById('admin-email-input')?.value.trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    document.getElementById('admin-status').textContent = 'Bitte gültige E-Mail eingeben.';
+    return;
+  }
+  const statusEl = document.getElementById('admin-status');
+  statusEl.textContent = 'Lade…';
+  try {
+    const doc = await window._fbDb.collection('grantedAccess').doc(_emailToDocId(email)).get();
+    const perms = doc.exists ? (doc.data().permissions || {}) : {};
+    document.getElementById('perm-aqeedah').checked = !!perms.aqeedah;
+    document.getElementById('perm-siyasa').checked  = !!perms.siyasa;
+    document.getElementById('perm-premium').checked = !!perms.premium;
+    document.getElementById('admin-user-panel').style.display = 'block';
+    statusEl.textContent = doc.exists ? 'Nutzer gefunden — Berechtigungen geladen.' : 'Neuer Nutzer — noch keine Berechtigungen.';
+    statusEl.style.color = 'var(--accent)';
+  } catch(e) {
+    statusEl.textContent = 'Fehler: ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function adminSavePermissions() {
+  if (!window.isOwner() || !window._fbDb) return;
+  const email = document.getElementById('admin-email-input')?.value.trim().toLowerCase();
+  if (!email) return;
+  const statusEl = document.getElementById('admin-status');
+  statusEl.textContent = 'Speichere…';
+  try {
+    const perms = {
+      aqeedah: document.getElementById('perm-aqeedah').checked,
+      siyasa:  document.getElementById('perm-siyasa').checked,
+      premium: document.getElementById('perm-premium').checked,
+    };
+    await window._fbDb.collection('grantedAccess').doc(_emailToDocId(email)).set({
+      email, permissions: perms,
+      grantedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      grantedBy: OWNER_EMAIL,
+    }, { merge: true });
+    statusEl.textContent = `Gespeichert — ${Object.entries(perms).filter(([,v])=>v).map(([k])=>k).join(', ') || 'keine Rechte'}.`;
+    statusEl.style.color = 'var(--success, #5cbb8a)';
+    showToast(`Berechtigungen für ${email} gespeichert`, 'success');
+  } catch(e) {
+    statusEl.textContent = 'Fehler: ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function adminRevokeAll() {
+  if (!window.isOwner() || !window._fbDb) return;
+  const email = document.getElementById('admin-email-input')?.value.trim().toLowerCase();
+  if (!email) return;
+  try {
+    await window._fbDb.collection('grantedAccess').doc(_emailToDocId(email)).delete();
+    document.getElementById('perm-aqeedah').checked = false;
+    document.getElementById('perm-siyasa').checked  = false;
+    document.getElementById('perm-premium').checked = false;
+    document.getElementById('admin-status').textContent = 'Alle Berechtigungen entzogen.';
+    document.getElementById('admin-status').style.color = 'var(--danger)';
+    showToast(`Berechtigungen für ${email} entfernt`, 'error');
+  } catch(e) { showToast('Fehler: ' + e.message, 'error'); }
+}
+
+async function adminSaveAnnouncement() {
+  if (!window.isOwner() || !window._fbDb) return;
+  const msg = document.getElementById('owner-announcement')?.value.trim();
+  if (!msg) return;
+  try {
+    await window._fbDb.collection('system').doc('announcement').set({
+      message: msg, createdAt: firebase.firestore.FieldValue.serverTimestamp(), id: Date.now().toString()
+    });
+    document.getElementById('owner-announcement').value = '';
+    showToast('Ankündigung veröffentlicht', 'success');
+  } catch(e) { showToast('Fehler: ' + e.message, 'error'); }
+}
+
+async function adminChangeAccessCode() {
+  if (!window.isOwner()) return;
+  const newCode = document.getElementById('owner-new-code')?.value.trim();
+  if (!newCode || newCode.length < 4) { showToast('Code muss mindestens 4 Zeichen haben', 'error'); return; }
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newCode))))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+  if (window._fbDb) {
+    await window._fbDb.collection('system').doc('config').set({ accessCodeHash: hash, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  }
+  document.getElementById('owner-new-code').value = '';
+  showToast('Zugangscode aktualisiert', 'success');
+}
+
+async function adminLoadStats() {
+  if (!window.isOwner() || !window._fbDb) return;
+  const usersEl = document.getElementById('stat-users');
+  const nlEl    = document.getElementById('stat-newsletter');
+  const nlList  = document.getElementById('admin-newsletter-list');
+  if (usersEl) usersEl.textContent = '…';
+  if (nlEl)    nlEl.textContent    = '…';
+  try {
+    const snapshot = await window._fbDb.collection('users').get();
+    const docs = snapshot.docs.map(d => d.data());
+    if (usersEl) usersEl.textContent = docs.length;
+    const subscribers = docs.filter(d => d.newsletter === true);
+    if (nlEl) nlEl.textContent = subscribers.length;
+    if (nlList) {
+      if (subscribers.length) {
+        nlList.style.display = 'block';
+        nlList.innerHTML = subscribers.map(d =>
+          `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:var(--text-secondary);">${d.email || '–'}</div>`
+        ).join('');
+      } else {
+        nlList.style.display = 'block';
+        nlList.textContent = 'Keine Newsletter-Abonnenten.';
+      }
+    }
+  } catch(e) {
+    if (usersEl) usersEl.textContent = '!';
+    showToast('Statistik konnte nicht geladen werden: ' + e.message, 'error');
+  }
+}
+
+// Ankündigung beim App-Start prüfen (für alle Nutzer)
+async function _checkAnnouncement() {
+  if (!window._fbDb) return;
+  try {
+    const doc = await window._fbDb.collection('system').doc('announcement').get();
+    if (!doc.exists) return;
+    const data = doc.data();
+    const seenId = localStorage.getItem('hf_seen_announcement');
+    if (data.id && data.id !== seenId && data.message) {
+      localStorage.setItem('hf_seen_announcement', data.id);
+      setTimeout(() => showToast('Info: ' + data.message, 'info', 8000), 1500);
+    }
+  } catch(e) {}
+}
 
 // ═══════════════════════════════════════════════
 //  MADHAB ONBOARDING
@@ -5740,14 +6080,20 @@ function closeMobileSidebar() {
 }
 
 let toastTimer;
-function showToast(msg, type = '') {
+function showToast(msg, type = '', duration = 3500) {
   const el = document.getElementById('toast');
-  const icons = { success: '✅', error: '❌', '': 'ℹ️' };
-  document.getElementById('toast-icon').textContent = icons[type] || '';
+  const svgs = {
+    success: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5cbb8a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+    error:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#e05c5c" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d4ac64" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+    '':      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  };
+  const iconEl = document.getElementById('toast-icon');
+  if (iconEl) iconEl.innerHTML = svgs[type] || svgs[''];
   document.getElementById('toast-text').textContent = msg;
-  el.className = 'show ' + type;
+  el.className = 'show ' + (type || '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.className = '', 3500);
+  toastTimer = setTimeout(() => el.className = '', duration);
 }
 
 function toggleTheme() {
