@@ -23,10 +23,8 @@
     appId:             '1:1095944366920:web:1adcc727032902a31d217d'
   };
 
-  // Erlaubte Google-Emails:
-  const ALLOWED_EMAILS = [
-    'tanyelekici88@gmail.com',
-  ];
+  // Owner-Email (für Aqeedah/Politik-Freischaltung):
+  const ALLOWED_EMAILS = ['tanyelekici88@gmail.com']; // nur noch für Owner-Check genutzt
   // ════════════════════════════════════════════════════
 
   // Firebase initialisieren
@@ -58,7 +56,8 @@
         return;
       }
       _auth.onAuthStateChanged(user => {
-        if (user && ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(user.email.toLowerCase())) {
+        if (user && user.email) {
+          // Jeder Google-Account ist willkommen
           window._fbUser = user; window._fbDb = _db;
           _showTopbarUser(user);
           _loadFromFirestore(user.uid).then(() => {
@@ -116,28 +115,22 @@
   }
 
   function _processGoogleUser(user) {
+    // Jeder Google-Account ist willkommen
     const email = user.email.toLowerCase();
-    if (ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email)) {
-      window._fbUser = user; window._fbDb = _db;
-      const s2 = document.getElementById('_auth_step2');
-      if (s2) s2.innerHTML = `
-        <div style="text-align:center;animation:fadeInUp .4s ease both">
-          <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
-          <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
-          <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
-          <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
-        </div>`;
-      _showTopbarUser(user);
-      _loadFromFirestore(user.uid).then(() => {
-        setTimeout(_revealApp, 1000);
-        setTimeout(() => _startRealtimeSync(user.uid), 1500);
-      });
-    } else {
-      _auth.signOut();
-      const btn = document.getElementById('_google_signin_btn');
-      if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnHTML(); }
-      _showStep2Error('Dieser Account ist nicht berechtigt: ' + email);
-    }
+    window._fbUser = user; window._fbDb = _db;
+    const s2 = document.getElementById('_auth_step2');
+    if (s2) s2.innerHTML = `
+      <div style="text-align:center;animation:fadeInUp .4s ease both">
+        <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
+        <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
+        <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
+        <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
+      </div>`;
+    _showTopbarUser(user);
+    _loadFromFirestore(user.uid).then(() => {
+      setTimeout(_revealApp, 1000);
+      setTimeout(() => _startRealtimeSync(user.uid), 1500);
+    });
   }
 
   // Redirect-Ergebnis beim Seitenstart prüfen
@@ -197,16 +190,87 @@
   window._DEFAULT_PW_HASH = CORRECT_HASH;
 
   // ── STUFE 1: Passwort ─────────────────────────────
+  // ── Brute-Force-Schutz ────────────────────────────────
+  const _BF = {
+    ATTEMPTS_KEY: 'hf_pw_attempts',
+    LOCKOUT_KEY:  'hf_pw_lockout',
+    COUNT_KEY:    'hf_lockout_count',
+    MAX_ATTEMPTS: 5,
+    BASE_LOCKOUT: 15 * 60 * 1000, // 15 Minuten Basis
+
+    getLockoutRemaining() {
+      try {
+        const d = JSON.parse(localStorage.getItem(this.LOCKOUT_KEY) || 'null');
+        if (!d) return 0;
+        const rem = d.until - Date.now();
+        if (rem > 0) return rem;
+        localStorage.removeItem(this.LOCKOUT_KEY);
+        return 0;
+      } catch { return 0; }
+    },
+    recordFailure() {
+      const attempts = (parseInt(localStorage.getItem(this.ATTEMPTS_KEY) || '0')) + 1;
+      if (attempts >= this.MAX_ATTEMPTS) {
+        const lockoutNum = (parseInt(localStorage.getItem(this.COUNT_KEY) || '0')) + 1;
+        // Exponentielles Backoff: 15min → 30min → 1h → 2h → 4h (max)
+        const duration = Math.min(this.BASE_LOCKOUT * Math.pow(2, lockoutNum - 1), 4 * 60 * 60 * 1000);
+        localStorage.setItem(this.LOCKOUT_KEY, JSON.stringify({ until: Date.now() + duration }));
+        localStorage.setItem(this.COUNT_KEY, String(lockoutNum));
+        localStorage.removeItem(this.ATTEMPTS_KEY);
+        return { locked: true, duration };
+      }
+      localStorage.setItem(this.ATTEMPTS_KEY, String(attempts));
+      return { locked: false, remaining: this.MAX_ATTEMPTS - attempts };
+    },
+    clearOnSuccess() {
+      localStorage.removeItem(this.ATTEMPTS_KEY);
+      localStorage.removeItem(this.LOCKOUT_KEY);
+      localStorage.removeItem(this.COUNT_KEY);
+    }
+  };
+
+  // Countdown-Timer anzeigen wenn gesperrt
+  function _startLockoutCountdown() {
+    const errEl = document.getElementById('_auth_err');
+    const input  = document.getElementById('_auth_input');
+    const btn    = document.querySelector('button[onclick="_checkPassword()"], button[onclick="window._checkPassword()"]');
+    if (input) { input.disabled = true; input.style.opacity = '0.5'; }
+    if (btn)   { btn.disabled = true; }
+    const tick = () => {
+      const rem = _BF.getLockoutRemaining();
+      if (rem <= 0) {
+        if (errEl) errEl.textContent = '';
+        if (input) { input.disabled = false; input.style.opacity = ''; input.focus(); }
+        if (btn)   { btn.disabled = false; }
+        return;
+      }
+      const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
+      if (errEl) errEl.textContent = `Zu viele Fehlversuche. Gesperrt für ${m}:${String(s).padStart(2,'0')} Min.`;
+      setTimeout(tick, 1000);
+    };
+    tick();
+  }
+
+  // Beim Laden prüfen ob Sperre aktiv
+  document.addEventListener('DOMContentLoaded', () => {
+    if (_BF.getLockoutRemaining() > 0) _startLockoutCountdown();
+  });
+
   window._checkPassword = async function() {
+    // Sperre prüfen
+    const rem = _BF.getLockoutRemaining();
+    if (rem > 0) { _startLockoutCountdown(); return; }
+
     const input = document.getElementById('_auth_input');
     const pw = (input?.value || '').trim();
     if (!pw) return;
+
     const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    // Erst custom Hash aus localStorage prüfen, dann Standard-Hash
     const validHash = localStorage.getItem('hf_custom_pw_hash') || CORRECT_HASH;
+
     if (hash === validHash) {
-      // Wenn Firebase konfiguriert ist → Google-Login zeigen, sonst direkt öffnen
+      _BF.clearOnSuccess();
       const firebaseReady = _auth && FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('DEIN');
       if (firebaseReady) {
         const d1=document.getElementById('_dot1'), d2=document.getElementById('_dot2');
@@ -216,11 +280,16 @@
         if(s1){s1.style.opacity='0';s1.style.transform='translateY(-10px)';setTimeout(()=>s1.style.display='none',300);}
         if(s2){setTimeout(()=>{s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
       } else {
-        // Kein Firebase → direkt in die App
         _revealApp();
       }
     } else {
-      showError('Falsches Passwort.', input);
+      const result = _BF.recordFailure();
+      if (result.locked) {
+        _startLockoutCountdown();
+      } else {
+        const left = result.remaining;
+        showError(`Falsches Passwort. Noch ${left} Versuch${left===1?'':'e'} übrig.`, input);
+      }
     }
   };
   window._authKey = e => { if(e.key==='Enter') window._checkPassword(); };
@@ -3019,10 +3088,9 @@ body {
       <div id="legal-tab-impressum" class="legal-tab-panel" style="font-size:13px;line-height:1.75;color:var(--text-primary);">
         <h3 style="color:var(--accent);margin-bottom:12px;">Impressum</h3>
         <p><strong>Angaben gemäß § 5 TMG</strong></p>
-        <p>HanafiKI ist ein privates, nicht-kommerzielles Informationsangebot.<br>
-        Es handelt sich um eine geschlossene Anwendung ohne öffentlichen Zugang.</p>
-        <p><strong>Verantwortlich für den Inhalt (§ 55 RStV):</strong><br>
-        Tanye Lekici<br>
+        <p>HanafiKI ist ein privates, nicht-kommerzielles Informationsangebot.</p>
+        <p><strong>Betreiber &amp; Verantwortlich für den Inhalt (§ 55 RStV):</strong><br>
+        Tanyel Ekici<br>
         E-Mail: tanyelekici88@gmail.com</p>
         <p><strong>Haftungshinweis:</strong><br>
         Diese Anwendung dient ausschließlich zu Informationszwecken. Die Inhalte wurden mit größtmöglicher Sorgfalt erstellt. Eine Gewähr für Vollständigkeit, Richtigkeit und Aktualität wird nicht übernommen. Die bereitgestellten Informationen stellen keine Rechtsberatung, Fatwa oder religiöse Entscheidung dar und ersetzen nicht die Beratung durch einen qualifizierten islamischen Gelehrten.</p>
@@ -3034,7 +3102,7 @@ body {
       <div id="legal-tab-datenschutz" class="legal-tab-panel" style="display:none;font-size:13px;line-height:1.75;color:var(--text-primary);">
         <h3 style="color:var(--accent);margin-bottom:12px;">Datenschutzerklärung</h3>
         <p><strong>1. Verantwortliche Stelle</strong><br>
-        Tanye Lekici, E-Mail: tanyelekici88@gmail.com</p>
+        Tanyel Ekici, E-Mail: tanyelekici88@gmail.com</p>
         <p><strong>2. Erhobene Daten und Zweck</strong><br>
         Diese Anwendung verarbeitet folgende personenbezogene Daten:</p>
         <ul style="padding-left:18px;margin:6px 0;">
@@ -3447,16 +3515,50 @@ const LS = {
 };
 
 // ═══════════════════════════════════════════════
-//  RATE LIMITER — max 30 Anfragen / Minute
+//  SESSION TIMEOUT — Auto-Logout nach 2h Inaktivität
+// ═══════════════════════════════════════════════
+(function() {
+  const TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 Stunden
+  const WARN_MS    = 5 * 60 * 1000;       // 5 Min. vor Ablauf warnen
+  let _lastActivity = Date.now();
+  let _warnShown = false;
+
+  const resetTimer = () => { _lastActivity = Date.now(); _warnShown = false; };
+  ['click','keydown','touchstart','mousemove'].forEach(ev =>
+    document.addEventListener(ev, resetTimer, { passive: true })
+  );
+
+  setInterval(() => {
+    // Nur prüfen wenn User eingeloggt ist
+    if (!sessionStorage.getItem('hf_fb_ok')) return;
+    const idle = Date.now() - _lastActivity;
+    if (idle >= TIMEOUT_MS) {
+      // Abmelden
+      sessionStorage.clear();
+      if (window._fbAuth) window._fbAuth.signOut().catch(() => {});
+      location.reload();
+    } else if (!_warnShown && idle >= TIMEOUT_MS - WARN_MS) {
+      _warnShown = true;
+      if (typeof showToast === 'function')
+        showToast('Sicherheitshinweis: Sitzung läuft in 5 Minuten ab.', 'warning');
+    }
+  }, 30000); // alle 30 Sekunden prüfen
+})();
+
+// ═══════════════════════════════════════════════
+//  RATE LIMITER — max 20 Anfragen / Minute
+//  + min. 1 Sekunde zwischen Anfragen
 // ═══════════════════════════════════════════════
 const RateLimit = {
   _timestamps: [],
-  _max: 30,
+  _max: 20,
   _window: 60000,
+  _minGap: 1000, // mind. 1s zwischen Anfragen
   check() {
     const now = Date.now();
     this._timestamps = this._timestamps.filter(t => now - t < this._window);
     if (this._timestamps.length >= this._max) return false;
+    if (this._timestamps.length > 0 && now - this._timestamps[this._timestamps.length - 1] < this._minGap) return false;
     this._timestamps.push(now);
     return true;
   }
