@@ -81,6 +81,12 @@
         overlay.remove();
         Array.from(document.body.children).forEach(el => el.style.visibility = '');
         document.body.style.overflow = '';
+        // Beim ersten Login Madhab-Auswahl zeigen
+        if (!localStorage.getItem('hf_madhab')) {
+          setTimeout(() => {
+            if (typeof showMadhabModal === 'function') showMadhabModal();
+          }, 600);
+        }
       }, 380);
     }
   }
@@ -1197,6 +1203,20 @@ body {
   width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
 }
 .modal-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+/* Madhab-Auswahl-Buttons */
+.madhab-choice-btn {
+  background: var(--bg-tertiary); border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 16px 12px; cursor: pointer; transition: all 0.2s;
+  color: var(--text-primary); text-align: center; width: 100%;
+}
+.madhab-choice-btn:hover { border-color: var(--accent); background: var(--bg-active); transform: translateY(-1px); }
+.madhab-choice-btn.selected { border-color: var(--accent); background: var(--bg-active); box-shadow: 0 0 0 2px var(--accent); }
+
+/* Legal-Tabs */
+.legal-tab-panel h3 { font-size: 15px; font-weight: 600; }
+.legal-tab-panel ul { margin: 6px 0 12px; }
+.legal-tab-panel strong { color: var(--text-primary); }
 
 .modal-body {
   flex: 1; overflow-y: auto; padding: 20px 24px;
@@ -2474,7 +2494,8 @@ body {
 
 
 
-  <div class="sidebar-footer">
+  <div class="sidebar-footer" style="flex-direction:column;gap:6px;">
+    <div style="display:flex;gap:3px;width:100%;">
     <button class="footer-btn" id="google-connect-btn" onclick="connectGoogleAccount()" title="Mit Google anmelden für Sync" style="display:none;gap:7px;flex:1;justify-content:flex-start;color:var(--text-muted);font-size:12px;">
       <svg width="14" height="14" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
       Google verbinden
@@ -2486,6 +2507,17 @@ body {
     <button class="footer-btn" onclick="toggleTheme()" id="theme-btn" title="Hell/Dunkel-Modus">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
+    </div>
+    <!-- Madhab + Rechtstexte -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 2px;width:100%;">
+      <button onclick="showMadhabModal()" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;transition:color 0.2s;" title="Rechtsschule ändern">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <span id="sidebar-madhab-label">Rechtsschule</span>
+      </button>
+      <button onclick="showLegal('impressum')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:3px 6px;border-radius:5px;transition:color 0.2s;" title="Impressum & Datenschutz">
+        Rechtliches
+      </button>
+    </div>
   </div>
 </aside>
 
@@ -2547,10 +2579,7 @@ body {
   <!-- Print header (hidden, shown in print) -->
   <div id="print-header"></div>
 
-  <div id="api-banner" onclick="openSettings()">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    Kein API-Key konfiguriert — Hier klicken zum Einrichten
-  </div>
+  <div id="api-banner" style="display:none!important"></div>
 
   <!-- Search Overlay -->
   <div id="search-overlay" class="hidden" onclick="if(event.target===this)closeSearch()">
@@ -2634,16 +2663,9 @@ body {
     </div>
 
     <div class="modal-body">
-      <div class="modal-tabs">
-        <button class="modal-tab active" onclick="switchSettingsTab('api',this)">🔑 API</button>
-        <button class="modal-tab" onclick="switchSettingsTab('ai',this)">🤖 KI</button>
-        <button class="modal-tab" onclick="switchSettingsTab('prompts',this)">📜 Prompt</button>
-        <button class="modal-tab" onclick="switchSettingsTab('appearance',this)">🎨 Design</button>
-        <button class="modal-tab" onclick="switchSettingsTab('advanced',this)">⚡ Erweitert</button>
-      </div>
 
-      <!-- API Tab -->
-      <div id="settings-tab-api" class="settings-tab-panel">
+      <!-- Removed: API, KI, Prompt, Erweitert Tabs -->
+      <div id="settings-tab-api" class="settings-tab-panel" style="display:none!important">
         <div class="settings-section">
           <div class="settings-section-title">KI-Anbieter</div>
           <!-- Gemini Panel — Modell & Key fest eingebaut -->
@@ -2761,7 +2783,7 @@ body {
       </div>
 
       <!-- AI Settings Tab -->
-      <div id="settings-tab-ai" class="settings-tab-panel" style="display:none;">
+      <div id="settings-tab-ai" class="settings-tab-panel" style="display:none!important">
         <div class="settings-section">
           <div class="settings-section-title">Antwort-Einstellungen</div>
           <div class="form-group">
@@ -2805,8 +2827,7 @@ body {
         </div>
       </div>
 
-      <!-- Prompts Tab -->
-      <div id="settings-tab-prompts" class="settings-tab-panel" style="display:none;">
+      <div id="settings-tab-prompts" class="settings-tab-panel" style="display:none!important">
         <div class="settings-section">
           <div class="settings-section-title">System-Prompt</div>
           <div class="info-box" style="margin-bottom:12px;">
@@ -2853,8 +2874,18 @@ body {
         </div>
       </div>
 
-      <!-- Appearance Tab -->
-      <div id="settings-tab-appearance" class="settings-tab-panel" style="display:none;">
+      <!-- Design Tab (einziger sichtbarer Tab) -->
+      <div id="settings-tab-appearance" class="settings-tab-panel">
+        <div class="settings-section">
+          <div class="settings-section-title">Rechtsschule</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+            <div>
+              <div class="toggle-label">Aktive Rechtsschule</div>
+              <div class="toggle-sub" id="settings-madhab-display">—</div>
+            </div>
+            <button class="btn-cancel" onclick="closeSettings();setTimeout(showMadhabModal,150)" style="font-size:12px;padding:6px 12px;">Ändern</button>
+          </div>
+        </div>
         <div class="settings-section">
           <div class="settings-section-title">Modus</div>
           <div class="toggle-row">
@@ -2889,41 +2920,161 @@ body {
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Advanced Tab -->
-      <div id="settings-tab-advanced" class="settings-tab-panel" style="display:none;">
-        <div class="settings-section">
-          <div class="settings-section-title">Entwickler</div>
-          <div class="toggle-row">
-            <div>
-              <div class="toggle-label">Debug-Modus</div>
-              <div class="toggle-sub">API-Antworten in der Konsole protokollieren</div>
-            </div>
-            <div class="toggle-switch" id="debug-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-          <div class="toggle-row">
-            <div>
-              <div class="toggle-label">Zeitstempel anzeigen</div>
-              <div class="toggle-sub">Uhrzeit bei jeder Nachricht anzeigen</div>
-            </div>
-            <div class="toggle-switch on" id="timestamp-toggle" onclick="this.classList.toggle('on')"></div>
-          </div>
-        </div>
         <div class="settings-section">
           <div class="settings-section-title">Daten</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn-cancel" onclick="exportChats()">📥 JSON exportieren</button>
-            <button class="btn-cancel" onclick="exportChatAsMarkdown()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Markdown exportieren</button>
-            <button class="btn-cancel" style="color:var(--danger);border-color:rgba(224,92,92,0.3);" onclick="clearAllChats(this)">🗑 Alle Chats löschen</button>
+            <button class="btn-cancel" onclick="exportChats()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              JSON exportieren
+            </button>
+            <button class="btn-cancel" onclick="exportChatAsMarkdown()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Markdown exportieren
+            </button>
+            <button class="btn-cancel" style="color:var(--danger);border-color:rgba(224,92,92,0.3);" onclick="clearAllChats(this)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              Alle Chats löschen
+            </button>
           </div>
         </div>
+      </div>
+
+      <!-- Versteckte Toggle-IDs für JS-Kompatibilität -->
+      <div style="display:none">
+        <div id="debug-toggle" class="toggle-switch on"></div>
+        <div id="timestamp-toggle" class="toggle-switch on"></div>
+        <div id="settings-tab-advanced"></div>
       </div>
     </div>
 
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeSettings()">Abbrechen</button>
       <button class="btn-save" onclick="saveSettings()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     MADHAB ONBOARDING MODAL
+═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="madhab-modal" style="z-index:9999;">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header" style="border-bottom:1px solid var(--border-accent);">
+      <div class="modal-title" style="font-size:15px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="margin-right:8px;flex-shrink:0"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Willkommen — Rechtsschule wählen
+      </div>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;line-height:1.6;">
+        Welcher sunnitischen Rechtsschule gehörst du an? Die KI wird standardmäßig nach dieser Schule antworten. Du kannst in jeder Nachricht explizit eine andere Schule anfragen.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;" id="madhab-grid">
+        <button class="madhab-choice-btn" onclick="selectMadhab('hanafi')">
+          <div style="font-size:20px;margin-bottom:6px;">📗</div>
+          <div style="font-weight:600;font-size:13px;">Hanafi</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Abu Hanifa · Türkei, Balkan, Südasien</div>
+        </button>
+        <button class="madhab-choice-btn" onclick="selectMadhab('maliki')">
+          <div style="font-size:20px;margin-bottom:6px;">📘</div>
+          <div style="font-weight:600;font-size:13px;">Maliki</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Malik ibn Anas · Nordafrika, Westafrika</div>
+        </button>
+        <button class="madhab-choice-btn" onclick="selectMadhab('shafii')">
+          <div style="font-size:20px;margin-bottom:6px;">📙</div>
+          <div style="font-weight:600;font-size:13px;">Shafi'i</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Al-Shafi'i · Ägypten, Südostasien, Jemen</div>
+        </button>
+        <button class="madhab-choice-btn" onclick="selectMadhab('hanbali')">
+          <div style="font-size:20px;margin-bottom:6px;">📕</div>
+          <div style="font-weight:600;font-size:13px;">Hanbali</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Ahmad ibn Hanbal · Arabische Halbinsel</div>
+        </button>
+      </div>
+      <p style="color:var(--text-muted);font-size:11px;margin-top:16px;text-align:center;">Diese Auswahl kann in den Einstellungen jederzeit geändert werden.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     LEGAL MODAL (Impressum, DSGVO, AGB)
+═══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="legal-modal" onclick="if(event.target===this)closeLegal()">
+  <div class="modal" style="max-width:640px;max-height:80vh;display:flex;flex-direction:column;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Rechtliches
+      </div>
+      <button class="modal-close" onclick="closeLegal()">✕</button>
+    </div>
+    <div style="display:flex;gap:6px;padding:12px 20px 0;border-bottom:1px solid var(--border);flex-shrink:0;">
+      <button class="modal-tab active" onclick="switchLegalTab('impressum',this)" style="font-size:12px;">Impressum</button>
+      <button class="modal-tab" onclick="switchLegalTab('datenschutz',this)" style="font-size:12px;">Datenschutz</button>
+      <button class="modal-tab" onclick="switchLegalTab('nutzung',this)" style="font-size:12px;">Nutzungsbedingungen</button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto;flex:1;">
+
+      <!-- Impressum -->
+      <div id="legal-tab-impressum" class="legal-tab-panel" style="font-size:13px;line-height:1.75;color:var(--text-primary);">
+        <h3 style="color:var(--accent);margin-bottom:12px;">Impressum</h3>
+        <p><strong>Angaben gemäß § 5 TMG</strong></p>
+        <p>HanafiKI ist ein privates, nicht-kommerzielles Informationsangebot.<br>
+        Es handelt sich um eine geschlossene Anwendung ohne öffentlichen Zugang.</p>
+        <p><strong>Verantwortlich für den Inhalt (§ 55 RStV):</strong><br>
+        Tanye Lekici<br>
+        E-Mail: tanyelekici88@gmail.com</p>
+        <p><strong>Haftungshinweis:</strong><br>
+        Diese Anwendung dient ausschließlich zu Informationszwecken. Die Inhalte wurden mit größtmöglicher Sorgfalt erstellt. Eine Gewähr für Vollständigkeit, Richtigkeit und Aktualität wird nicht übernommen. Die bereitgestellten Informationen stellen keine Rechtsberatung, Fatwa oder religiöse Entscheidung dar und ersetzen nicht die Beratung durch einen qualifizierten islamischen Gelehrten.</p>
+        <p><strong>Urheberrecht:</strong><br>
+        Die durch den Betreiber erstellten Inhalte unterliegen dem deutschen Urheberrecht. Die Inhalte Dritter sind als solche gekennzeichnet. Die KI-generierten Antworten basieren auf klassischen islamischen Primärquellen, die gemeinfrei sind.</p>
+      </div>
+
+      <!-- Datenschutzerklärung -->
+      <div id="legal-tab-datenschutz" class="legal-tab-panel" style="display:none;font-size:13px;line-height:1.75;color:var(--text-primary);">
+        <h3 style="color:var(--accent);margin-bottom:12px;">Datenschutzerklärung</h3>
+        <p><strong>1. Verantwortliche Stelle</strong><br>
+        Tanye Lekici, E-Mail: tanyelekici88@gmail.com</p>
+        <p><strong>2. Erhobene Daten und Zweck</strong><br>
+        Diese Anwendung verarbeitet folgende personenbezogene Daten:</p>
+        <ul style="padding-left:18px;margin:6px 0;">
+          <li><strong>Google-Konto (Name, E-Mail, Profilbild):</strong> Zur Authentifizierung via Firebase Authentication (Google LLC). Rechtsgrundlage: Einwilligung (Art. 6 Abs. 1 lit. a DSGVO).</li>
+          <li><strong>Chat-Verläufe:</strong> Werden lokal im Browser (localStorage) und — bei Google-Anmeldung — in der Firebase Firestore-Datenbank gespeichert. Zweck: Synchronisierung zwischen Geräten.</li>
+          <li><strong>Anfragen an die Gemini API:</strong> Chat-Inhalte werden zur Verarbeitung an Google (Gemini API, generativelanguage.googleapis.com) übertragen. Es gelten die Datenschutzbestimmungen von Google: <a href="https://policies.google.com/privacy" target="_blank" style="color:var(--accent)">policies.google.com/privacy</a>.</li>
+        </ul>
+        <p><strong>3. Drittanbieter</strong><br>
+        • <strong>Firebase (Google LLC):</strong> Authentifizierung und Datenspeicherung. Datenverarbeitung gemäß Google Cloud-Datenschutzbedingungen.<br>
+        • <strong>Google Gemini API:</strong> KI-Verarbeitung der Anfragen.<br>
+        • <strong>Google Fonts:</strong> Schriftarten werden von Google Servern geladen.<br>
+        Die Datenübertragung erfolgt ggf. in die USA. Google ist unter dem EU-US Data Privacy Framework zertifiziert.</p>
+        <p><strong>4. Speicherdauer</strong><br>
+        Chat-Daten werden gespeichert bis zur manuellen Löschung durch den Benutzer. Google-Auth-Daten verbleiben bis zur Abmeldung aus dem Google-Konto.</p>
+        <p><strong>5. Betroffenenrechte (Art. 15–22 DSGVO)</strong><br>
+        Du hast das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. Zur Ausübung dieser Rechte wende dich an: tanyelekici88@gmail.com</p>
+        <p><strong>6. Beschwerderecht</strong><br>
+        Du hast das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren. Zuständig in Deutschland: Der Bundesbeauftragte für den Datenschutz und die Informationsfreiheit (BfDI).</p>
+        <p><strong>7. Lokale Speicherung</strong><br>
+        Die App verwendet localStorage und sessionStorage des Browsers. Diese Daten verlassen deinen Browser nicht, sofern kein Google-Konto verbunden ist. Du kannst diese Daten jederzeit über die Browser-Einstellungen löschen.</p>
+      </div>
+
+      <!-- Nutzungsbedingungen -->
+      <div id="legal-tab-nutzung" class="legal-tab-panel" style="display:none;font-size:13px;line-height:1.75;color:var(--text-primary);">
+        <h3 style="color:var(--accent);margin-bottom:12px;">Nutzungsbedingungen</h3>
+        <p><strong>1. Geltungsbereich</strong><br>
+        Diese Nutzungsbedingungen gelten für die Nutzung der Anwendung HanafiKI. Mit der Nutzung erkennst du diese Bedingungen an.</p>
+        <p><strong>2. Zweck der Anwendung</strong><br>
+        HanafiKI ist ein KI-gestütztes Informationssystem zu islamischen Rechtsfragen. Die Anwendung dient ausschließlich der Information und Bildung. Die KI-Antworten stellen keine offiziellen Fatwas dar und ersetzen nicht die Beratung durch qualifizierte islamische Gelehrte.</p>
+        <p><strong>3. Erlaubte Nutzung</strong><br>
+        Die Anwendung darf ausschließlich für persönliche, nicht-kommerzielle Zwecke genutzt werden. Eine Weitergabe von KI-Antworten als offizielle religiöse Urteile ist untersagt.</p>
+        <p><strong>4. Haftungsausschluss</strong><br>
+        Der Betreiber übernimmt keine Haftung für die Richtigkeit, Vollständigkeit oder Aktualität der KI-generierten Antworten. Die Nutzung der Anwendung und die Umsetzung der erhaltenen Informationen erfolgen auf eigene Verantwortung des Nutzers.</p>
+        <p><strong>5. Verfügbarkeit</strong><br>
+        Ein Anspruch auf ständige Verfügbarkeit der Anwendung besteht nicht. Der Betreiber behält sich vor, die Anwendung jederzeit zu ändern, einzuschränken oder einzustellen.</p>
+        <p><strong>6. Anwendbares Recht</strong><br>
+        Es gilt deutsches Recht. Gerichtsstand ist Deutschland.</p>
+        <p style="color:var(--text-muted);font-size:11px;margin-top:16px;">Stand: Juni 2026</p>
+      </div>
+
     </div>
   </div>
 </div>
@@ -3132,45 +3283,121 @@ body {
 // ═══════════════════════════════════════════════
 //  SYSTEM PROMPT
 // ═══════════════════════════════════════════════
-const SYSTEM_PROMPT = `Du bist ein hochspezialisierter, absolut regeltreuer und rein informativer KI-Assistent für islamische Wissenschaften. Du bist kein eigenständiger Gelehrter (Mujtahid), sondern ein präziser Übermittler (Naqil) von etabliertem Wissen. Deine Wissensbasis und Methodik sind strikt in drei voneinander getrennte Domänen unterteilt. Du darfst diese Domänen und ihre jeweiligen Referenzrahmen UNTER KEINEN UMSTÄNDEN miteinander vermischen (Kein Talfiq, keine hybriden Urteile). Deine oberste Priorität ist theologische, juristische und methodologische Präzision nach exakt folgenden, unumstößlichen Richtlinien:
+const SYSTEM_PROMPT = `Du bist ein hochspezialisierter, absolut regeltreuer und rein informativer KI-Assistent für islamische Wissenschaften. Du bist kein eigenständiger Gelehrter (Mujtahid), sondern ein präziser Übermittler (Naqil) von etabliertem Wissen. Deine Wissensbasis und Methodik sind strikt in drei voneinander getrennte Domänen unterteilt. Deine oberste Priorität ist theologische, juristische und methodologische Präzision nach exakt folgenden, unumstößlichen Richtlinien:
 
-1. DOMÄNE 1: FIQH (ISLAMISCHE RECHTSWISSENSCHAFT / ALLTAG & RITUALE)
-Für alle Fragen bezüglich Ibadat (Gottesdienste, Gebet, Fasten), Mu'amalat (Handel, Verträge im Alltag), Familienrecht (Heirat, Scheidung) und persönlichem Verhalten greifst du EXKLUSIV auf die hanafitische Rechtsschule (Fiqh Hanafi) zurück.
-- Deine Basis bilden ausschließlich die klassischen Standardwerke der hanafitischen Schule (z.B. Mukhtasar al-Quduri, Al-Hidayah, Radd al-Muhtar / Hashiyat Ibn Abidin, Nur al-Idah, Al-Fatawa al-Hindiyyah, Al-Bahr al-Ra'iq).
-- Bei Meinungsverschiedenheiten innerhalb der hanafitischen Schule priorisierst du stets die Ansicht, auf der die Fatwa (Mufta-bihi) der späten klassischen Gelehrten liegt.
-- ANDERE RECHTSSCHULEN: Du antwortest standardmäßig immer und ausschließlich hanafitisch. Die Ansichten der anderen drei sunnitischen Rechtsschulen (Shafi'i, Maliki, Hanbali) suchst und nennst du AUSSCHLIESSLICH DANN, wenn der Benutzer in seinem Prompt explizit danach verlangt (z.B. "Wie sehen das die Schafiiten?"). Ohne diese explizite Nachfrage erwähnst du sie nicht mit einem einzigen Wort.
+═══════════════════════════════════════════════════════════
+DOMÄNE 1: FIQH — DIE VIER SUNNITISCHEN RECHTSSCHULEN
+═══════════════════════════════════════════════════════════
 
-2. DOMÄNE 2: AQEEDAH (THEOLOGIE & GLAUBENSGRUNDLAGEN)
-Für alle Fragen, die sich auf die islamische Glaubenslehre (Aqeedah), die Beweisführung für die Existenz Allahs, das Prophetentum, den Quran als Wunder, den Verstand (Aql), Schicksal/Vorherbestimmung (Qada wal Qadar) oder die Grundlagen des Glaubens beziehen, wechselst du deinen Referenzrahmen vollständig.
-- In der Aqeedah stützt du dich AUSSCHLIESSLICH und PRIMÄR auf die methodologischen Definitionen, Konzepte und Werke von Taqi ud-Din an-Nabhani (z.B. Ash-Shakhsiyya al-Islamiyya, Band 1). 
-- Seine rationalen und textlichen Begründungen (Dalil Aqli und Naqli) zur Glaubenslehre sind dein einziger Maßstab für theologische Antworten.
+STANDARD-VERHALTEN: Du antwortest bei Fiqh-Fragen (Ibadat, Mu'amalat, Familienrecht, persönliches Verhalten) standardmäßig aus der hanafitischen Rechtsschule. Wenn der Benutzer explizit eine andere Schule nennt (z.B. "nach malikitischer Sicht", "was sagen die Schafiiten", "hanbali"), wechselst du vollständig in den Referenzrahmen dieser Schule. Du mischst niemals zwei Schulen innerhalb einer Antwort (kein Talfiq, keine hybriden Urteile). Bei einem Schulwechsel in der Antwort kennzeichnest du dies immer explizit.
 
-3. DOMÄNE 3: POLITIK, WIRTSCHAFT & STAATSWESEN (SIYASA)
-Für alle Fragen, die über das individuelle Fiqh hinausgehen und die Makro-Ebene betreffen, gilt ebenfalls ein exklusiver Referenzrahmen.
-- Bei allen Fragen zu Politik (Siyasa), Staatsführung (Nizam al-Hukm), dem islamischen Wirtschaftssystem (Nizam al-Iqtisadi), dem Kalifat, internationalen Beziehungen (Siyar), dem Gesellschaftssystem auf staatlicher Ebene oder der Methode zur Wiedererrichtung des islamischen Staates, stützt du dich methodisch und inhaltlich EXKLUSIV auf die Werke, Definitionen und Ijtihadat von Taqi ud-Din an-Nabhani (z.B. Nizam al-Islam, Nizam al-Hukm fil Islam, An-Nizam al-Iqtisadi fil Islam).
-- Seine Konzepte zu diesen Themengebieten bilden den absoluten und einzigen Rahmen deiner Erklärungen in diesem Bereich.
+Bei vergleichenden Fragen (z.B. "Wie sehen das alle vier Schulen?") gibst du die Position jeder Schule separat und klar beschriftet wieder — immer mit Quellenangabe aus den unten definierten Primärwerken.
 
-4. STRIKTE AUSSCHLÜSSE UND "ROTE LINIEN" (DIE FIREWALL)
-Du musst deine Antworten massiv vor fremden methodologischen Einflüssen schützen.
-- Es ist dir absolut, kategorisch und ausnahmslos UNTERSAGT, Ansichten, Fatawa, theologische Prinzipien oder Werke von Salih al-Fawzan, Muhammad ibn al-Uthaymin, Muhammad ibn Abd al-Wahhab, Abd al-Aziz ibn Baz, Nasir al-Din al-Albani oder jeglichen anderen Vertretern der saudischen, modernen salafitischen oder wahhabitischen Ausrichtung heranzuziehen.
-- Selbst wenn ihre Ansicht zufällig mit deiner Vorgabe übereinstimmen sollte, zitierst du sie niemals als Referenz. Du ignorierst ihre Schriften, Namen und Methodik in deiner Datenbank vollständig.
+───────────────────────────────────────────────────────────
+1.1 HANAFITISCHE RECHTSSCHULE (Madhhab Hanafi)
+Gegründet von Nu'man ibn Thabit Abu Hanifa (gest. 150 AH/767 n. Chr.), Kufa/Bagdad.
+Verbreitung: Türkei, Balkan, Zentralasien, Indien, Pakistan, Bangladesch, Ägypten, Syrien.
 
-5. TRENNUNG DER DOMÄNEN (NICHT MISCHEN!)
-- Wenn eine Frage gestellt wird, analysierst du zuerst: Ist das eine Fiqh-Frage (Gebet, Kaufvertrag), eine Aqeedah-Frage (Vorherbestimmung) oder eine Politik-Frage (Staat, Wirtschaft)?
-- Du wendest dann STRICKT nur das Regelwerk der jeweiligen Domäne an. Du darfst niemals hanafitisches Fiqh mit nabhanischer Aqeedah so vermischen, dass ein unzulässiger neuer Hybrid entsteht. Du hältst die Fachbereiche sauber getrennt.
+ZUGELASSENE PRIMÄRQUELLEN (ausschließlich diese):
+• Mukhtasar al-Quduri — Abu l-Husayn al-Quduri (gest. 428 AH/1037) — Standardlehrtext
+• Al-Hidayah fi Sharh Bidayat al-Mubtadi — Burhan al-Din al-Marghinani (gest. 593 AH/1197) — zentrales Lehrwerk
+• Radd al-Muhtar ala al-Durr al-Mukhtar (Hashiyat Ibn Abidin) — Muhammad Amin Ibn Abidin (gest. 1252 AH/1836) — maßgebliche Fatwa-Enzyklopädie
+• Nur al-Idah wa Najat al-Arwah — Hasan al-Shurunbulali (gest. 1069 AH/1659) — Standardwerk Gebet & Reinheit
+• Al-Fatawa al-Hindiyyah (al-Alamgiriyya) — Gelehrtenkomitee unter Aurangzeb (17. Jh.) — umfassende Fatwa-Sammlung
+• Al-Bahr al-Ra'iq Sharh Kanz al-Daqa'iq — Zayn al-Din ibn Nujaym (gest. 970 AH/1563) — ausführlicher Kommentar
+• Tuhfat al-Fuqaha — Ala al-Din al-Samarqandi (gest. 539 AH/1144) — klassisches Lehrwerk
+• Majma' al-Anhur fi Sharh Multaqa al-Abhur — Damad Afandi (gest. 1078 AH/1667) — osmanisches Standardwerk
 
-6. ABSOLUTES VERBOT VON EIGENINTERPRETATION
-- Du ziehst niemals eigene Schlüsse aus dem Koran oder der Sunna. Du machst keinen eigenen Ijtihad.
-- Du wendest niemals eigenständig Qiyas (Analogieschlüsse) auf moderne Probleme an.
-- Du gibst keine persönlichen Ratschläge oder spirituelle Lebensberatung, sondern lieferst die trockene, faktische und akademische Rechtslage gemäß den oben strikt definierten Vorgaben.
+Bei innerhanafitischen Meinungsverschiedenheiten priorisierst du stets die Mufta-bihi-Ansicht (die Ansicht, auf die die Fatwa der späten klassischen Gelehrten liegt).
 
-7. BELEG- UND WAHRHEITSPFICHT
-- Nenne bei JEDER Antwort die konkrete Quelle. Im Fiqh nennst du das klassische hanafitische Werk. In Aqeedah und Politik nennst du explizit Taqi ud-Din an-Nabhani.
-- Wenn es zu einer sehr spezifischen Frage keine klare Überlieferung innerhalb deiner exakt definierten Quellen gibt, darfst du nichts extrapolieren oder halluzinieren. Deine Antwort muss zwingend lauten: "Dazu liegt mir in den vorgegebenen spezifischen Quellen keine verifizierbare Aussage vor."
+───────────────────────────────────────────────────────────
+1.2 MALIKITISCHE RECHTSSCHULE (Madhhab Maliki)
+Gegründet von Malik ibn Anas (gest. 179 AH/795 n. Chr.), Medina.
+Verbreitung: Nordafrika (Marokko, Algerien, Tunesien, Libyen), Westafrika, Sudan, Kuwait, Bahrain, Teile Ägyptens.
 
-8. SPRACHLICHER STIL
-- Formuliere deine Antworten auf einem hochgradig akademischen, sachlichen, neutralen und respektvollen Niveau.
-- Strukturiere komplexe Sachverhalte extrem übersichtlich und präzise.`;
+ZUGELASSENE PRIMÄRQUELLEN (ausschließlich diese):
+• Al-Muwatta — Imam Malik ibn Anas (gest. 179 AH/795) — Gründungswerk, Hadith & Fiqh Medinas
+• Al-Mudawwana al-Kubra — Sahnun ibn Sa'id al-Tanukhi (gest. 240 AH/854), basierend auf Ibn al-Qasims Überlieferungen von Malik — zentrales Quellenwerk
+• Al-Risala — Ibn Abi Zayd al-Qayrawani (gest. 386 AH/996) — wichtigstes Einführungslehrwerk
+• Al-Kafi fi Fiqh Ahl al-Madina — Ibn Abd al-Barr al-Andalusi (gest. 463 AH/1071) — systematisches Lehrwerk
+• Bidayat al-Mujtahid wa Nihayat al-Muqtasid — Ibn Rushd al-Hafid (Averroes, gest. 595 AH/1198) — rechtsvergleichendes Standardwerk
+• Mukhtasar Khalil — Khalil ibn Ishaq al-Jundi (gest. 776 AH/1374) — DAS Referenzwerk des späten Malikismus
+• Mawahib al-Jalil li-Sharh Mukhtasar Khalil — Muhammad al-Hattab (gest. 954 AH/1547) — maßgeblicher Kommentar
+• Al-Taj wal-Iklil li-Mukhtasar Khalil — Muhammad al-Mawwaq (gest. 897 AH/1492) — anerkannter Kommentar
+• Hashiyat al-Dusuqi ala al-Sharh al-Kabir — Muhammad al-Dusuqi (gest. 1230 AH/1815) — spätes Standardreferenzwerk
+
+───────────────────────────────────────────────────────────
+1.3 SCHAFIITISCHE RECHTSSCHULE (Madhhab Shafi'i)
+Gegründet von Muhammad ibn Idris al-Shafi'i (gest. 204 AH/820 n. Chr.), Ägypten.
+Verbreitung: Ägypten, Ostafrika, Südostasien (Indonesien, Malaysia, Philippinen), Jemen, Kurdistan.
+
+ZUGELASSENE PRIMÄRQUELLEN (ausschließlich diese):
+• Al-Umm — Imam Muhammad ibn Idris al-Shafi'i (gest. 204 AH/820) — Gründungswerk der Schule
+• Mukhtasar al-Muzani — Isma'il al-Muzani (gest. 264 AH/878) — erste systematische Zusammenfassung
+• Al-Muhadhdhab fi Fiqh al-Imam al-Shafi'i — Abu Ishaq al-Shirazi (gest. 476 AH/1083) — klassisches Lehrwerk
+• Al-Majmu' Sharh al-Muhadhdhab — Yahya ibn Sharaf al-Nawawi (gest. 676 AH/1277) — enzyklopädisches Hauptwerk
+• Minhaj al-Talibin — Yahya ibn Sharaf al-Nawawi (gest. 676 AH/1277) — maßgeblicher Referenztext
+• Mughni al-Muhtaj ila Ma'rifat Alfaz al-Minhaj — Muhammad al-Khatib al-Shirbini (gest. 977 AH/1570) — Standardkommentar zum Minhaj
+• Tuhfat al-Muhtaj bi Sharh al-Minhaj — Ahmad ibn Hajar al-Haytami (gest. 974 AH/1567) — wichtigster Kommentar der Ägypter-Linie
+• Nihayat al-Muhtaj ila Sharh al-Minhaj — Shams al-Din al-Ramli (gest. 1004 AH/1596) — wichtigster Kommentar der Syrer-Linie
+• Fath al-Wahhab bi-Sharh Minhaj al-Tullab — Zakariyya al-Ansari (gest. 926 AH/1520) — Standardlehrtext
+• Umdat al-Salik wa Uddat al-Nasik — Ahmad ibn Naqib al-Misri (gest. 769 AH/1368) — praktisches Nachschlagewerk
+
+───────────────────────────────────────────────────────────
+1.4 HANBALITISCHE RECHTSSCHULE (Madhhab Hanbali)
+Gegründet von Ahmad ibn Muhammad ibn Hanbal (gest. 241 AH/855 n. Chr.), Bagdad.
+Verbreitung: Saudi-Arabien, Katar, Teile Iraks und Syriens.
+WICHTIG: Die Hanbaliten sind nicht identisch mit Salafiten/Wahhabiten. Du verwendest ausschließlich die klassischen Hanbaliten-Gelehrten (vor-modernes Lehramt), NICHT Ibn Abd al-Wahhab oder seine Nachfolger.
+
+ZUGELASSENE PRIMÄRQUELLEN (ausschließlich diese):
+• Al-Mughni — Muwaffaq al-Din Ibn Qudama al-Maqdisi (gest. 620 AH/1223) — umfassendstes Werk des Hanbali-Fiqh
+• Al-Muqni' fi al-Fiqh — Ibn Qudama al-Maqdisi (gest. 620 AH/1223) — mittleres Lehrwerk
+• Al-Umdah fi al-Fiqh — Ibn Qudama al-Maqdisi (gest. 620 AH/1223) — Einführungslehrtext
+• Al-Insaf fi Ma'rifat al-Rajih min al-Khilaf — Ala al-Din al-Mardawi (gest. 885 AH/1480) — Werk über innerhanbalitische Meinungsverschiedenheiten
+• Zad al-Mustaqni' fi Ikhtisas al-Muqni' — Musa al-Hajjawi (gest. 968 AH/1560) — meistkommentierter Hanbali-Lehrtext
+• Al-Iqna' li-Talib al-Intifa' — Musa al-Hajjawi (gest. 968 AH/1560) — praktisches Nachschlagewerk
+• Kashf al-Qina' an Matn al-Iqna' — Mansur al-Buhuti (gest. 1051 AH/1641) — umfassendes Standardwerk
+• Al-Rawdah al-Murbi'a Sharh Zad al-Mustaqni' — Mansur al-Buhuti (gest. 1051 AH/1641) — Standardkommentar
+• Sharh Muntaha al-Iradat — Mansur al-Buhuti (gest. 1051 AH/1641) — detailliertes Referenzwerk
+• Dalil al-Talib li-Nayl al-Matalib — Mar'i ibn Yusuf al-Karmi (gest. 1033 AH/1624) — kompaktes Lehrbuch
+
+═══════════════════════════════════════════════════════════
+DOMÄNE 2: AQEEDAH (THEOLOGIE & GLAUBENSGRUNDLAGEN)
+═══════════════════════════════════════════════════════════
+Für alle Fragen zur islamischen Glaubenslehre (Aqeedah), Gottesbeweise, Prophetentum, Quran als Wunder, Verstand (Aql), Schicksal/Vorherbestimmung (Qada wal Qadar) oder Grundlagen des Glaubens wechselst du deinen Referenzrahmen vollständig.
+- Stütze dich AUSSCHLIESSLICH auf die methodologischen Definitionen, Konzepte und Werke von Taqi ud-Din an-Nabhani: insbesondere Ash-Shakhsiyya al-Islamiyya (Band 1).
+- Seine rationalen und textlichen Begründungen (Dalil Aqli und Naqli) sind der einzige Maßstab für theologische Antworten in dieser Domäne.
+
+═══════════════════════════════════════════════════════════
+DOMÄNE 3: POLITIK, WIRTSCHAFT & STAATSWESEN (SIYASA)
+═══════════════════════════════════════════════════════════
+Für alle Fragen zu Politik (Siyasa), Staatsführung (Nizam al-Hukm), islamischem Wirtschaftssystem (Nizam al-Iqtisadi), Kalifat, internationalen Beziehungen (Siyar) oder der Methode zur Wiedererrichtung des islamischen Staates:
+- Stütze dich EXKLUSIV auf die Werke, Definitionen und Ijtihadat von Taqi ud-Din an-Nabhani: Nizam al-Islam, Nizam al-Hukm fil Islam, An-Nizam al-Iqtisadi fil Islam.
+
+═══════════════════════════════════════════════════════════
+ABSOLUTE VERBOTE UND ROTE LINIEN (FIREWALL)
+═══════════════════════════════════════════════════════════
+1. VERBOTENE QUELLEN: Es ist dir kategorisch und ausnahmslos UNTERSAGT, Ansichten, Fatawa oder Werke von Salih al-Fawzan, Muhammad ibn al-Uthaymin, Muhammad ibn Abd al-Wahhab, Abd al-Aziz ibn Baz, Nasir al-Din al-Albani oder anderen Vertretern der saudischen, salafitischen oder wahhabitischen Ausrichtung heranzuziehen — auch wenn ihre Ansicht mit den obigen Vorgaben übereinstimmt.
+
+2. NULL-HALLUZINATION — OBERSTES GEBOT: Du darfst ABSOLUT NICHTS erfinden, extrapolieren oder aus Quellen zitieren, die dir nicht mit Sicherheit bekannt sind. Wenn zu einer Frage keine gesicherte Aussage in den oben definierten Quellen vorliegt, lautet deine Pflichtantwort: "Dazu liegt in den vorgegebenen Quellen dieser Rechtsschule keine verifizierbare und gesicherte Aussage vor. Eine Antwort würde Halluzination bedeuten und ist daher nicht zulässig."
+
+3. KEIN IJTIHAD: Du ziehst niemals eigene Schlüsse aus Koran oder Sunna. Kein eigenständiger Qiyas. Keine persönliche Lebensberatung oder spirituellen Ratschläge.
+
+4. KEINE VERMISCHUNG (KEIN TALFIQ): Innerhalb einer Antwort verwendest du immer nur eine Rechtsschule. Gibst du Ansichten mehrerer Schulen wieder, trennst du sie klar und kennzeichnest jede mit Schule + Quelle.
+
+═══════════════════════════════════════════════════════════
+BELEG- UND ZITIERPFLICHT
+═══════════════════════════════════════════════════════════
+- Nenne bei JEDER Fiqh-Antwort das konkrete Primärwerk (Buchtitel + Autor) aus den oben definierten Quellen.
+- Nenne bei Aqeedah und Politik explizit Taqi ud-Din an-Nabhani mit Werktitel.
+- Gib niemals eine Seitenzahl, Bandnummer oder ein Zitat an, dessen Korrektheit du nicht mit Sicherheit bestätigen kannst — lieber weglassen als erfinden.
+
+═══════════════════════════════════════════════════════════
+SPRACHLICHER STIL
+═══════════════════════════════════════════════════════════
+- Hochgradig akademisch, sachlich, neutral und respektvoll.
+- Komplexe Sachverhalte werden klar strukturiert und präzise dargestellt.
+- Bei vergleichenden Antworten (mehrere Schulen) verwendest du übersichtliche Abschnitte mit klarer Beschriftung der jeweiligen Schule und Quelle.`;
 
 // ═══════════════════════════════════════════════
 //  CRYPTO — AES-GCM KEY ENCRYPTION
@@ -4152,6 +4379,19 @@ function getSettingStyleNote() {
 
 function buildSystemPrompt(policy) {
   let prompt = customSystemPrompt || SYSTEM_PROMPT;
+
+  // Gewählte Rechtsschule als Standard hinzufügen
+  const madhab = localStorage.getItem('hf_madhab') || 'hanafi';
+  const madhabNames = { hanafi: 'Hanafitisch', maliki: 'Malikitisch', shafii: "Schafiitisch", hanbali: 'Hanbalitisch' };
+  prompt += `\n\nSTANDARD-RECHTSSCHULE DES BENUTZERS: ${madhabNames[madhab] || 'Hanafitisch'}. Wenn keine Rechtsschule explizit angegeben wird, antworte standardmäßig nach dieser Schule.`;
+
+  // Aqeedah/Politik-Sperre für alle außer dem Eigentümer
+  const ownerEmail = 'tanyelekici88@gmail.com';
+  const userEmail = (window._fbUser?.email || '').toLowerCase().trim();
+  if (userEmail !== ownerEmail) {
+    prompt += `\n\nBESCHRÄNKUNG FÜR DIESEN BENUTZER: Du darfst AUSSCHLIESSLICH Fragen aus Domäne 1 (Fiqh / Rechtsschulfragen) beantworten. Fragen zu Domäne 2 (Aqeedah / Theologie / Glaubenslehre) und Domäne 3 (Politik / Staatsform / Wirtschaft / Kalifat / Siyasa) sind für diesen Benutzer gesperrt. Wenn eine solche Frage gestellt wird, antworte genau mit: "Zu diesem Thema kann ich mich in diesem Rahmen nicht äußern. Bitte wende dich an einen qualifizierten islamischen Gelehrten."`;
+  }
+
   prompt += getSettingStyleNote();
   if (!policy) return prompt;
   const extras = [];
@@ -4430,45 +4670,78 @@ function openSettings() {
   const ollamaModelEl = document.getElementById('ollama-model-input');
   if (ollamaModelEl) ollamaModelEl.value = state.ollamaModel;
 
-  // Provider immer auf Gemini (fest eingebaut)
-  document.querySelectorAll('.provider-panel').forEach(p => p.classList.add('hidden'));
-  document.getElementById('panel-gemini')?.classList.remove('hidden');
-  activeProviderTab = 'gemini';
+  // Madhab-Anzeige
+  const madhabDisp = document.getElementById('settings-madhab-display');
+  if (madhabDisp) {
+    const m = localStorage.getItem('hf_madhab');
+    const names = { hanafi: 'Hanafi', maliki: 'Maliki', shafii: "Shafi'i", hanbali: 'Hanbali' };
+    madhabDisp.textContent = m ? names[m] || m : 'Noch nicht gewählt';
+  }
 
   // Theme-Toggle
   const isDark = document.documentElement.dataset.theme === 'dark';
   const tt = document.getElementById('theme-toggle');
   if (tt) tt.className = 'toggle-switch' + (isDark ? ' on' : '');
 
-  // AI-Settings
-  const tempRange = document.getElementById('ai-temp-range');
-  const savedTemp = localStorage.getItem('hf_aiTemp') || '2';
-  if (tempRange) { tempRange.value = savedTemp; document.getElementById('ai-temp-val').textContent = (parseFloat(savedTemp)/10).toFixed(1); }
-  const lengthSel = document.getElementById('ai-length-select');
-  if (lengthSel) lengthSel.value = localStorage.getItem('hf_aiLength') || 'mittel';
-  const styleSel = document.getElementById('ai-style-select');
-  if (styleSel) styleSel.value = localStorage.getItem('hf_aiStyle') || 'akademisch';
-  const langSel = document.getElementById('ai-lang-select');
-  if (langSel) langSel.value = localStorage.getItem('hf_aiLang') || 'de';
-
-  // Prompts-Tab
-  const spEl = document.getElementById('settings-system-prompt');
-  if (spEl) spEl.value = localStorage.getItem('hf_customSystemPrompt') || SYSTEM_PROMPT;
-  // Whisper
-  const whisperToggle = document.getElementById('whisper-local-toggle');
-  if (whisperToggle) whisperToggle.className = 'toggle-switch' + (localStorage.getItem('hf_whisperLocal')==='1' ? ' on' : '');
-  const whisperUrlEl = document.getElementById('whisper-url-input');
-  if (whisperUrlEl) whisperUrlEl.value = localStorage.getItem('hf_whisperUrl') || 'http://localhost:8000';
-
-  // Edit-Fenster
-  const ewRange = document.getElementById('edit-window-range');
-  const ewMin = Math.round(EDIT_WINDOW_MS / 60000);
-  if (ewRange) { ewRange.value = ewMin; document.getElementById('edit-window-val').textContent = ewMin + ' Min.'; }
+  // Font-Size
+  const fs = localStorage.getItem('hf_fontSize') || '14';
+  const fsRange = document.getElementById('font-size-range');
+  if (fsRange) { fsRange.value = fs; const fsVal = document.getElementById('font-size-val'); if(fsVal) fsVal.textContent = fs + 'px'; }
 
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
 function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+
+// ═══════════════════════════════════════════════
+//  MADHAB ONBOARDING
+// ═══════════════════════════════════════════════
+const MADHAB_NAMES = { hanafi: 'Hanafi', maliki: 'Maliki', shafii: "Shafi'i", hanbali: 'Hanbali' };
+
+function showMadhabModal() {
+  const modal = document.getElementById('madhab-modal');
+  if (!modal) return;
+  // Aktuell gespeichertes Madhab markieren
+  const saved = localStorage.getItem('hf_madhab');
+  document.querySelectorAll('.madhab-choice-btn').forEach(b => b.classList.remove('selected'));
+  if (saved) {
+    const btns = document.querySelectorAll('#madhab-grid button');
+    btns.forEach(b => { if (b.getAttribute('onclick').includes(`'${saved}'`)) b.classList.add('selected'); });
+  }
+  modal.classList.remove('hidden');
+}
+
+function selectMadhab(school) {
+  localStorage.setItem('hf_madhab', school);
+  document.querySelectorAll('.madhab-choice-btn').forEach(b => b.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+  // Sidebar-Label aktualisieren
+  const lbl = document.getElementById('sidebar-madhab-label');
+  if (lbl) lbl.textContent = MADHAB_NAMES[school] || school;
+  setTimeout(() => {
+    document.getElementById('madhab-modal').classList.add('hidden');
+    showToast(`Rechtsschule: ${MADHAB_NAMES[school] || school} gespeichert ✓`, 'success');
+  }, 350);
+}
+
+// ═══════════════════════════════════════════════
+//  LEGAL MODAL
+// ═══════════════════════════════════════════════
+function showLegal(tab) {
+  document.getElementById('legal-modal').classList.remove('hidden');
+  if (tab) {
+    const btn = document.querySelector(`#legal-modal .modal-tab[onclick*="${tab}"]`);
+    if (btn) switchLegalTab(tab, btn);
+  }
+}
+function closeLegal() { document.getElementById('legal-modal').classList.add('hidden'); }
+function switchLegalTab(tab, btn) {
+  document.querySelectorAll('#legal-modal .modal-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.legal-tab-panel').forEach(p => p.style.display = 'none');
+  btn.classList.add('active');
+  const panel = document.getElementById(`legal-tab-${tab}`);
+  if (panel) panel.style.display = 'block';
+}
 
 async function saveSettings() {
   // geminiKey und geminiModel sind fest eingebaut — werden nicht aus UI gelesen
@@ -4852,13 +5125,18 @@ function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  state.geminiKey = await CRYPTO.decrypt(localStorage.getItem('hf_geminiKey_enc') || '');
+  // geminiKey ist fest eingebaut — nicht aus localStorage laden
   state.openaiKey = await CRYPTO.decrypt(localStorage.getItem('hf_openaiKey_enc') || '');
   state.claudeKey = await CRYPTO.decrypt(localStorage.getItem('hf_claudeKey_enc') || '');
-  const plainGemini = localStorage.getItem('hf_geminiKey');
   const plainOpenai = localStorage.getItem('hf_openaiKey');
-  if (plainGemini) { state.geminiKey = plainGemini; localStorage.setItem('hf_geminiKey_enc', await CRYPTO.encrypt(plainGemini)); localStorage.removeItem('hf_geminiKey'); }
   if (plainOpenai) { state.openaiKey = plainOpenai; localStorage.setItem('hf_openaiKey_enc', await CRYPTO.encrypt(plainOpenai)); localStorage.removeItem('hf_openaiKey'); }
+  // Sidebar Madhab-Label aktualisieren
+  const madhabLabel = document.getElementById('sidebar-madhab-label');
+  if (madhabLabel) {
+    const saved = localStorage.getItem('hf_madhab');
+    const names = { hanafi: 'Hanafi', maliki: 'Maliki', shafii: "Shafi'i", hanbali: 'Hanbali' };
+    madhabLabel.textContent = saved ? names[saved] || 'Rechtsschule' : 'Rechtsschule wählen';
+  }
   initApp();
 });
 
