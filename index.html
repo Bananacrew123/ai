@@ -117,6 +117,8 @@
   function _processGoogleUser(user) {
     // Jeder Google-Account ist willkommen
     const email = user.email.toLowerCase();
+    const isNewUser = !localStorage.getItem('hf_has_registered');
+    localStorage.setItem('hf_has_registered', '1');
     window._fbUser = user; window._fbDb = _db;
     const s2 = document.getElementById('_auth_step2');
     if (s2) s2.innerHTML = `
@@ -124,13 +126,32 @@
         <img src="${user.photoURL||''}" style="width:56px;height:56px;border-radius:50%;border:2px solid #d4ac64;margin-bottom:10px;" onerror="this.style.display='none'">
         <div style="color:#f0ebe0;font-weight:600;font-size:15px;">${user.displayName||''}</div>
         <div style="color:#9b9080;font-size:12px;margin:4px 0 12px;">${email}</div>
-        <div style="color:#5cbb8a;font-size:14px;">✓ Willkommen!</div>
+        <div style="color:#5cbb8a;font-size:14px;">${isNewUser ? '✓ Konto erstellt – Willkommen!' : '✓ Willkommen zurück!'}</div>
       </div>`;
     _showTopbarUser(user);
     _loadFromFirestore(user.uid).then(() => {
       setTimeout(_revealApp, 1000);
       setTimeout(() => _startRealtimeSync(user.uid), 1500);
     });
+  }
+
+  function _updateStep2UI() {
+    const isNew = !localStorage.getItem('hf_has_registered');
+    const label  = document.getElementById('_s2_label');
+    const hint   = document.getElementById('_s2_hint');
+    const footer = document.getElementById('_s2_footer');
+    const btnSpan= document.getElementById('_s2_btn_text');
+    if (isNew) {
+      if (label)  label.textContent = 'Schritt 2 von 2 — Konto erstellen';
+      if (hint)   hint.textContent  = '✓ Zugangscode korrekt — erstelle jetzt dein Konto';
+      if (footer) footer.textContent= 'Einmalige Registrierung — danach einfach anmelden';
+      if (btnSpan)btnSpan.textContent='Mit Google registrieren';
+    } else {
+      if (label)  label.textContent = 'Schritt 2 von 2 — Anmelden';
+      if (hint)   hint.textContent  = '✓ Willkommen zurück! Bitte mit Google anmelden';
+      if (footer) footer.textContent= 'Schon registriert ✓';
+      if (btnSpan)btnSpan.textContent='Mit Google anmelden';
+    }
   }
 
   // Redirect-Ergebnis beim Seitenstart prüfen
@@ -143,7 +164,7 @@
       const s1 = document.getElementById('_auth_step1');
       const s2 = document.getElementById('_auth_step2');
       if (s1) s1.style.display = 'none';
-      if (s2) { s2.style.display='flex'; s2.style.opacity='1'; s2.style.transform='translateY(0)'; }
+      if (s2) { _updateStep2UI(); s2.style.display='flex'; s2.style.opacity='1'; s2.style.transform='translateY(0)'; }
       // Ladetext anzeigen
       const btn = document.getElementById('_google_signin_btn');
       if (btn) { btn.disabled = true; btn.innerHTML = '<span style="opacity:.7">Google-Anmeldung wird verarbeitet…</span>'; }
@@ -183,7 +204,9 @@
   };
 
   function _googleBtnHTML() {
-    return `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Mit Google anmelden`;
+    const isNew = !localStorage.getItem('hf_has_registered');
+    const label = isNew ? 'Mit Google registrieren' : 'Mit Google anmelden';
+    return `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> <span id="_s2_btn_text">${label}</span>`;
   }
 
   // Standard-Hash für Passwortvergleich global verfügbar machen (für Account-Modal)
@@ -278,7 +301,7 @@
         if(d2) d2.style.background='#d4ac64';
         const s1=document.getElementById('_auth_step1'), s2=document.getElementById('_auth_step2');
         if(s1){s1.style.opacity='0';s1.style.transform='translateY(-10px)';setTimeout(()=>s1.style.display='none',300);}
-        if(s2){setTimeout(()=>{s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
+        if(s2){setTimeout(()=>{_updateStep2UI();s2.style.display='flex';setTimeout(()=>{s2.style.opacity='1';s2.style.transform='translateY(0)';},20);},320);}
       } else {
         _revealApp();
       }
@@ -2470,9 +2493,9 @@ body {
   <!-- STUFE 2: Google Sign-In (versteckt bis Passwort korrekt) -->
   <div id="_auth_step2" style="display:none;flex-direction:column;align-items:center;gap:14px;
     width:min(340px,90vw);opacity:0;transform:translateY(12px);transition:opacity .35s,transform .35s;">
-    <div style="font-size:12px;color:#9b9080;text-align:center;letter-spacing:0.3px;">Schritt 2 von 2 — Google-Konto bestätigen</div>
-    <div style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.8;">
-      ✓ Passwort korrekt — bitte mit Google anmelden
+    <div id="_s2_label" style="font-size:12px;color:#9b9080;text-align:center;letter-spacing:0.3px;">Schritt 2 von 2 — Konto erstellen</div>
+    <div id="_s2_hint" style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.8;">
+      ✓ Zugangscode korrekt — erstelle jetzt dein Konto
     </div>
     <button id="_google_signin_btn" onclick="_startGoogleSignIn()"
       style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
@@ -2482,13 +2505,96 @@ body {
       onmouseenter="this.style.background='rgba(255,255,255,0.1)'"
       onmouseleave="this.style.background='rgba(255,255,255,0.06)'">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-      Mit Google anmelden
+      <span id="_s2_btn_text">Mit Google registrieren</span>
     </button>
-    <div style="font-size:11px;color:#5e5850;text-align:center;">Nur erlaubte Accounts erhalten Zugang</div>
+    <div id="_s2_footer" style="font-size:11px;color:#5e5850;text-align:center;">Einmalige Registrierung — danach einfach anmelden</div>
   </div>
 
 </div>
 <!-- ── END AUTH OVERLAY ──────────────────────────── -->
+
+<!-- ── INTRO MODAL ──────────────────────────────── -->
+<div id="_intro_modal" style="display:none;position:fixed;inset:0;z-index:10000;
+  background:rgba(8,9,11,0.92);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  align-items:center;justify-content:center;padding:20px;animation:fadeIn .35s ease both;">
+  <div style="background:linear-gradient(160deg,#161718 0%,#0e0f10 100%);
+    border:1px solid rgba(212,172,100,0.2);border-radius:22px;
+    width:min(480px,95vw);max-height:92vh;overflow-y:auto;
+    box-shadow:0 24px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(212,172,100,0.08);
+    animation:fadeInUp .45s ease both;padding:40px 36px 32px;">
+
+    <!-- Logo + Titel -->
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-size:42px;margin-bottom:12px;">☪️</div>
+      <div style="font-size:24px;font-weight:700;color:#f0ebe0;letter-spacing:-0.5px;">Willkommen bei HanafiKI</div>
+      <div style="font-size:14px;color:#9b9080;margin-top:6px;">Dein KI-Assistent für Islamisches Recht</div>
+    </div>
+
+    <!-- Was ist HanafiKI -->
+    <div style="background:rgba(212,172,100,0.06);border:1px solid rgba(212,172,100,0.15);
+      border-radius:14px;padding:18px 20px;margin-bottom:20px;">
+      <div style="font-size:13.5px;color:#d4c8a8;line-height:1.65;">
+        HanafiKI ist ein KI-gestützter Chatbot, der dir Fragen zum islamischen Recht (<em>Fiqh</em>) beantwortet — basierend auf authentischen Quellen der vier sunnitischen Rechtsschulen.
+      </div>
+    </div>
+
+    <!-- Die 4 Rechtsschulen -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Hanafitisch</div>
+        <div style="font-size:11.5px;color:#6b6560;">Al-Hidāya · Fatawa Hindiyya</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Malikitisch</div>
+        <div style="font-size:11.5px;color:#6b6560;">Al-Mudawwana · Al-Muwatta</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Schafiitisch</div>
+        <div style="font-size:11.5px;color:#6b6560;">Al-Umm · Minhaj al-Talibin</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Hanbalitisch</div>
+        <div style="font-size:11.5px;color:#6b6560;">Al-Mughni · Rawdat al-Nadiyya</div>
+      </div>
+    </div>
+
+    <!-- Hinweis -->
+    <div style="font-size:12px;color:#5e5850;text-align:center;margin-bottom:24px;line-height:1.6;">
+      Die KI ersetzt keinen qualifizierten Gelehrten. Für verbindliche religiöse Entscheidungen wende dich bitte an einen Imam oder Mufti.
+    </div>
+
+    <!-- CTA -->
+    <button onclick="window._closeIntro()" style="width:100%;padding:15px;border-radius:14px;border:none;
+      background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f;
+      font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;
+      letter-spacing:0.2px;transition:opacity .2s;"
+      onmouseenter="this.style.opacity='0.88'" onmouseleave="this.style.opacity='1'">
+      Verstanden — Los geht's
+    </button>
+  </div>
+</div>
+
+<script>
+(function() {
+  window._closeIntro = function() {
+    localStorage.setItem('hf_intro_seen', '1');
+    const m = document.getElementById('_intro_modal');
+    if (!m) return;
+    m.style.opacity = '0';
+    m.style.transition = 'opacity .3s';
+    setTimeout(() => m.remove(), 320);
+  };
+
+  document.addEventListener('DOMContentLoaded', function() {
+    if (!localStorage.getItem('hf_intro_seen')) {
+      const m = document.getElementById('_intro_modal');
+      if (m) {
+        m.style.display = 'flex';
+      }
+    }
+  });
+})();
+</script>
 
 <!-- Background orbs -->
 <div class="bg-orb bg-orb-1"></div>
@@ -3776,6 +3882,17 @@ function buildMessageHtml(msg) {
   const text = formatText(msg.content);
   const time = new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
   const ts = msg.ts || Date.now();
+
+  // Anhänge als Chips über dem Text anzeigen
+  let attachHtml = '';
+  if (isUser && msg.attachments && msg.attachments.length) {
+    const chips = msg.attachments.map(a => {
+      const icon = a.isImage ? '🖼' : a.isPDF ? '📄' : '📎';
+      return `<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(212,172,100,0.10);border:1px solid rgba(212,172,100,0.28);border-radius:7px;padding:3px 9px;font-size:11.5px;color:var(--accent);max-width:220px;overflow:hidden;">${icon} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(a.name)}</span></div>`;
+    }).join('');
+    attachHtml = `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">${chips}</div>`;
+  }
+
   return `
     <div class="message-wrapper ${isUser ? 'user' : 'assistant'}" data-ts="${ts}">
       <div class="message-inner">
@@ -3785,12 +3902,11 @@ function buildMessageHtml(msg) {
             ${roleLabel}
             <span class="message-role-time">${time}</span>
           </div>
-          <div class="message-bubble">${text}</div>
+          <div class="message-bubble">${attachHtml}${text}</div>
           <div class="message-actions">
             ${!isUser ? `<button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren</button>` : ''}
             ${!isUser ? `<button class="msg-action-btn tts-btn" onclick="speakMessage(this)" title="Vorlesen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>` : ''}
             ${!isUser ? `<button class="msg-action-btn" onclick="addFavoriteFromBtn(this)" title="Als Favorit speichern"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>` : ''}
-            ${!isUser ? `<button class="msg-action-btn" onclick="shareMessage(this)" title="Teilen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>` : ''}
             ${!isUser ? `<button class="msg-action-btn msg-regen-btn" onclick="regenerateMessage(this)" title="Neu generieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Neu</button>` : ''}
             ${isUser ? `<button class="msg-action-btn msg-edit-btn" onclick="startEditMessage(this)" title="Bearbeiten"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Bearbeiten</button>` : ''}
           </div>
@@ -4136,7 +4252,6 @@ function createStreamingWrapper() {
           <button class="msg-action-btn" onclick="copyMessage(this)" title="Kopieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Kopieren</button>
           <button class="msg-action-btn tts-btn" onclick="speakMessage(this)" title="Vorlesen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
           <button class="msg-action-btn" onclick="addFavoriteFromBtn(this)" title="Als Favorit speichern"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
-          <button class="msg-action-btn" onclick="shareMessage(this)" title="Teilen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
           <button class="msg-action-btn msg-regen-btn" onclick="regenerateMessage(this)" title="Neu generieren"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Neu</button>
         </div>
       </div>
@@ -4199,10 +4314,24 @@ async function sendMessage() {
   const chat = getActiveChat();
   document.getElementById('welcome-screen').style.display = 'none';
 
-  // Anhänge sammeln (Base64 für Bilder bereits geladen)
+  // Anhänge sammeln und auf vollständiges Laden warten
   const currentFiles = [...attachedFiles];
+  if (currentFiles.length) {
+    await Promise.all(currentFiles.map(f => f._loaded || Promise.resolve()));
+  }
 
-  chat.messages.push({ role: 'user', content: text, ts: Date.now() });
+  // Anhang-Metadaten für Anzeige (kein Base64 in Storage)
+  const attachmentsMeta = currentFiles.map(f => ({
+    name: f.name,
+    type: f.type,
+    isImage: f.type.startsWith('image/'),
+    isPDF:   f.type === 'application/pdf'
+  }));
+
+  const msgObj = { role: 'user', content: text, ts: Date.now() };
+  if (attachmentsMeta.length) msgObj.attachments = attachmentsMeta;
+
+  chat.messages.push(msgObj);
   if (chat.messages.length === 1) {
     chat.title = text.length > 45 ? text.slice(0, 45) + '…' : text;
   }
@@ -4210,7 +4339,7 @@ async function sendMessage() {
   renderChatList();
 
   const msgContainer = document.getElementById('messages-container');
-  msgContainer.insertAdjacentHTML('beforeend', buildMessageHtml({ role: 'user', content: text }));
+  msgContainer.insertAdjacentHTML('beforeend', buildMessageHtml(msgObj));
   scrollToBottom();
 
   input.value = '';
@@ -4426,8 +4555,12 @@ async function callGeminiAPI(messages, policy, files = []) {
     const last = messages[messages.length - 1];
     const parts = [];
     for (const f of files) {
-      if (f.type && f.type.startsWith('image/') && f._base64) {
+      if ((f.type.startsWith('image/') || f.type === 'application/pdf') && f._base64) {
+        // Bild oder PDF als inline_data
         parts.push({ inline_data: { mime_type: f.type, data: f._base64 } });
+      } else if (f._textContent) {
+        // Textdatei als Textblock
+        parts.push({ text: `[Dateiinhalt: ${f.name}]\n${f._textContent}` });
       }
     }
     parts.push({ text: last.content });
@@ -5444,56 +5577,46 @@ function handleFileAttach(event) {
   preview.style.display = 'flex';
 
   files.forEach(file => {
-    attachedFiles.push(file);
-    const tag = document.createElement('div');
-    tag.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg-tertiary);border:1px solid var(--border-accent);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--accent);';
     const isImage = file.type.startsWith('image/');
-    tag.innerHTML = `<span>${isImage ? '🖼' : '📎'}</span><span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(file.name)}</span><button onclick="removeAttachment(this,'${escHtml(file.name)}')" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;line-height:1;padding:0 0 0 4px;">✕</button>`;
+    const isPDF   = file.type === 'application/pdf';
+    const isText  = file.type === 'text/plain' || /\.(md|txt|csv|json)$/i.test(file.name);
+
+    // Lade Dateiinhalt als Promise — damit sendMessage warten kann
+    file._loaded = new Promise(resolve => {
+      const reader = new FileReader();
+      if (isText) {
+        reader.onload = e => { file._textContent = e.target.result.slice(0, 8000); resolve(); };
+        reader.onerror = resolve;
+        reader.readAsText(file);
+      } else if (isImage || isPDF) {
+        reader.onload = e => { file._base64 = e.target.result.split(',')[1]; resolve(); };
+        reader.onerror = resolve;
+        reader.readAsDataURL(file);
+      } else {
+        resolve();
+      }
+    });
+
+    attachedFiles.push(file);
+
+    // Chip im Vorschau-Bereich zeigen
+    const icon = isImage ? '🖼' : isPDF ? '📄' : '📎';
+    const tag = document.createElement('div');
+    tag.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg-tertiary);border:1px solid var(--border-accent);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--accent);max-width:220px;';
+    tag.dataset.filename = file.name;
+    tag.innerHTML = `<span>${icon}</span><span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(file.name)}</span><button onclick="removeAttachment(this,'${escHtml(file.name).replace(/'/g,"\\'")}'" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;line-height:1;padding:0 0 0 4px;">✕</button>`;
     preview.appendChild(tag);
   });
 
-  // Dateiinhalt in den Eingabetext einfügen (Text-Dateien)
-  files.forEach(file => {
-    if (file.type === 'text/plain' || file.name.endsWith('.md') || file.name.endsWith('.txt') || file.name.endsWith('.csv') || file.name.endsWith('.json')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const input = document.getElementById('message-input');
-        const content = e.target.result.slice(0, 4000);
-        const note = `\n\n[Datei: ${file.name}]\n${content}`;
-        input.value = (input.value || '') + note;
-        autoResize(input);
-      };
-      reader.readAsText(file);
-    } else if (file.type.startsWith('image/')) {
-      // Bild als Base64 für zukünftige Nutzung speichern (Gemini Vision)
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        file._base64 = e.target.result.split(',')[1];
-        file._mimeType = file.type;
-      };
-      reader.readAsDataURL(file);
-    }
-  });
-
-  // Input zurücksetzen damit dieselbe Datei erneut gewählt werden kann
   event.target.value = '';
 }
 
 function removeAttachment(btn, name) {
   attachedFiles = attachedFiles.filter(f => f.name !== name);
-  btn.closest('div').remove();
+  const chip = btn.closest('[data-filename]') || btn.closest('div');
+  if (chip) chip.remove();
   const preview = document.getElementById('attachment-preview');
   if (!preview.children.length) preview.style.display = 'none';
-  const input = document.getElementById('message-input');
-  const marker = `[Datei: ${name}]`;
-  const idx = input.value.indexOf(marker);
-  if (idx !== -1) {
-    const before = input.value.lastIndexOf('\n\n', idx);
-    const nextSection = input.value.indexOf('\n\n[Datei:', idx + 1);
-    const end = nextSection !== -1 ? nextSection : input.value.length;
-    input.value = input.value.slice(0, before !== -1 ? before : idx) + input.value.slice(end);
-    autoResize(input);
-  }
 }
 
 // ═══════════════════════════════════════════════
@@ -6080,27 +6203,67 @@ function speakMessage(btn) {
   const rawText = stripMarkdown(bubble.innerText || bubble.textContent);
   if (!rawText) return;
 
+  const lang = getTTSLang();
   const utter = new SpeechSynthesisUtterance(rawText);
-  utter.lang = getTTSLang();
-  utter.rate = 0.95;
-  utter.pitch = 1;
+  utter.lang = lang;
 
-  _ttsSpeakingBtn = btn;
-  btn.classList.add('tts-speaking');
-  btn.innerHTML = _ttsIconStop;
+  // Beste verfügbare Stimme wählen (neural > standard, bevorzugt Google/Microsoft/Apple)
+  function _pickBestVoice(targetLang) {
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    const langBase = targetLang.split('-')[0].toLowerCase(); // z.B. "de"
+    // Priorität: 1. Neural/Premium 2. Google 3. Microsoft 4. Apple 5. beliebig
+    const priority = [
+      v => v.lang.toLowerCase().startsWith(langBase) && /neural|premium|natural/i.test(v.name),
+      v => v.lang.toLowerCase().startsWith(langBase) && /google/i.test(v.name),
+      v => v.lang.toLowerCase().startsWith(langBase) && /microsoft.*katja|microsoft.*hedda/i.test(v.name),
+      v => v.lang.toLowerCase().startsWith(langBase) && /microsoft/i.test(v.name),
+      v => v.lang.toLowerCase().startsWith(langBase) && /apple/i.test(v.name),
+      v => v.lang.toLowerCase().startsWith(langBase) && !v.name.toLowerCase().includes('espeak'),
+      v => v.lang.toLowerCase().startsWith(langBase),
+    ];
+    for (const test of priority) {
+      const found = voices.find(test);
+      if (found) return found;
+    }
+    return null;
+  }
 
-  utter.onend = () => {
-    btn.classList.remove('tts-speaking');
-    btn.innerHTML = _ttsIconSpeak;
-    if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
-  };
-  utter.onerror = () => {
-    btn.classList.remove('tts-speaking');
-    btn.innerHTML = _ttsIconSpeak;
-    if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
-  };
+  function _startSpeaking(voice) {
+    if (voice) utter.voice = voice;
+    utter.rate  = voice && /google/i.test(voice.name) ? 1.0 : 0.88;
+    utter.pitch = 1.0;
+    utter.volume = 1.0;
 
-  window.speechSynthesis.speak(utter);
+    _ttsSpeakingBtn = btn;
+    btn.classList.add('tts-speaking');
+    btn.innerHTML = _ttsIconStop;
+
+    utter.onend = () => {
+      btn.classList.remove('tts-speaking');
+      btn.innerHTML = _ttsIconSpeak;
+      if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
+    };
+    utter.onerror = () => {
+      btn.classList.remove('tts-speaking');
+      btn.innerHTML = _ttsIconSpeak;
+      if (_ttsSpeakingBtn === btn) _ttsSpeakingBtn = null;
+    };
+    window.speechSynthesis.speak(utter);
+  }
+
+  // Stimmen laden (manchmal asynchron)
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length) {
+    _startSpeaking(_pickBestVoice(lang));
+  } else {
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.onvoiceschanged = null;
+      _startSpeaking(_pickBestVoice(lang));
+    };
+    // Fallback falls onvoiceschanged nicht feuert
+    setTimeout(() => { if (!_ttsSpeakingBtn) _startSpeaking(null); }, 800);
+  }
 }
 
 // ═══════════════════════════════════════════════
