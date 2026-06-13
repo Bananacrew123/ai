@@ -115,11 +115,22 @@
   }
 
   function _processGoogleUser(user) {
-    // Jeder Google-Account ist willkommen
     const email = user.email.toLowerCase();
     const isNewUser = !localStorage.getItem('hf_has_registered');
     localStorage.setItem('hf_has_registered', '1');
     window._fbUser = user; window._fbDb = _db;
+
+    // Newsletter-Zustimmung sofort zu Firestore schreiben
+    const newsletterConsent = localStorage.getItem('hf_newsletter_consent') === '1';
+    try {
+      _db.collection('users').doc(user.uid).set({
+        email,
+        newsletter: newsletterConsent,
+        ...(newsletterConsent ? { newsletterConsentAt: firebase.firestore.FieldValue.serverTimestamp() } : {}),
+        registeredAt: isNewUser ? firebase.firestore.FieldValue.serverTimestamp() : firebase.firestore.FieldValue.delete(),
+        lastLoginAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    } catch(_) {}
     const s2 = document.getElementById('_auth_step2');
     if (s2) s2.innerHTML = `
       <div style="text-align:center;animation:fadeInUp .4s ease both">
@@ -135,23 +146,37 @@
     });
   }
 
-  function _updateStep2UI() {
-    const isNew = !localStorage.getItem('hf_has_registered');
-    const label  = document.getElementById('_s2_label');
-    const hint   = document.getElementById('_s2_hint');
-    const footer = document.getElementById('_s2_footer');
-    const btnSpan= document.getElementById('_s2_btn_text');
-    if (isNew) {
-      if (label)  label.textContent = 'Schritt 2 von 2 — Konto erstellen';
-      if (hint)   hint.textContent  = '✓ Zugangscode korrekt — erstelle jetzt dein Konto';
-      if (footer) footer.textContent= 'Einmalige Registrierung — danach einfach anmelden';
-      if (btnSpan)btnSpan.textContent='Mit Google registrieren';
+  let _s2Mode = null; // 'register' | 'login' | null (auto)
+
+  function _updateStep2UI(forceMode) {
+    if (forceMode) _s2Mode = forceMode;
+    const isRegister = _s2Mode === 'register' || (_s2Mode !== 'login' && !localStorage.getItem('hf_has_registered'));
+    const label   = document.getElementById('_s2_label');
+    const hint    = document.getElementById('_s2_hint');
+    const footer  = document.getElementById('_s2_footer');
+    const btnSpan = document.getElementById('_s2_btn_text');
+    const toggle  = document.getElementById('_s2_toggle');
+    const btn     = document.getElementById('_google_signin_btn');
+    if (isRegister) {
+      if (label)   label.textContent  = 'Schritt 2 von 2 — Konto erstellen';
+      if (hint)    hint.innerHTML     = '✓ Zugangscode korrekt — erstelle jetzt dein Konto';
+      if (footer)  footer.textContent = 'Einmalige Registrierung — danach einfach anmelden';
+      if (btnSpan) btnSpan.textContent = 'Mit Google registrieren';
+      if (toggle)  toggle.innerHTML   = 'Bereits registriert? <span style="color:#9b9080;text-decoration:underline;cursor:pointer;" onclick="_toggleAuthMode()">Anmelden</span>';
+      if (btn) { btn.style.borderColor = 'rgba(212,172,100,0.35)'; btn.style.background = 'rgba(212,172,100,0.10)'; }
     } else {
-      if (label)  label.textContent = 'Schritt 2 von 2 — Anmelden';
-      if (hint)   hint.textContent  = '✓ Willkommen zurück! Bitte mit Google anmelden';
-      if (footer) footer.textContent= 'Schon registriert ✓';
-      if (btnSpan)btnSpan.textContent='Mit Google anmelden';
+      if (label)   label.textContent  = 'Schritt 2 von 2 — Anmelden';
+      if (hint)    hint.innerHTML     = '✓ Willkommen zurück! Bitte mit Google anmelden';
+      if (footer)  footer.textContent = 'Schon registriert ✓';
+      if (btnSpan) btnSpan.textContent = 'Mit Google anmelden';
+      if (toggle)  toggle.innerHTML   = 'Noch kein Konto? <span style="color:#9b9080;text-decoration:underline;cursor:pointer;" onclick="_toggleAuthMode()">Registrieren</span>';
+      if (btn) { btn.style.borderColor = 'rgba(255,255,255,0.15)'; btn.style.background = 'rgba(255,255,255,0.06)'; }
     }
+  }
+
+  function _toggleAuthMode() {
+    const isCurrentlyRegister = _s2Mode === 'register' || (_s2Mode !== 'login' && !localStorage.getItem('hf_has_registered'));
+    _updateStep2UI(isCurrentlyRegister ? 'login' : 'register');
   }
 
   // Redirect-Ergebnis beim Seitenstart prüfen
@@ -402,6 +427,7 @@
       const doc = await _db.collection('users').doc(uid).get();
       if (doc.exists) {
         const data = doc.data();
+        // Chats
         if (data.chats?.length) {
           localStorage.setItem('hf_chats', JSON.stringify(data.chats));
           if (data.activeChat) localStorage.setItem('hf_activeChat', data.activeChat);
@@ -410,6 +436,27 @@
             window.state.activeChatId = data.activeChat || data.chats[0]?.id;
             if (typeof renderChatList==='function') { renderChatList(); renderMessages(); }
           }
+        }
+        // Einstellungen (nur überschreiben wenn vorhanden)
+        if (data.settings) {
+          const s = data.settings;
+          if (s.madhab)   localStorage.setItem('hf_madhab', s.madhab);
+          if (s.lang)     localStorage.setItem('hf_lang', s.lang);
+          if (s.aiStyle)  localStorage.setItem('hf_aiStyle', s.aiStyle);
+          if (s.theme)    localStorage.setItem('hf_theme', s.theme);
+          if (typeof applyLang === 'function') applyLang(s.lang || localStorage.getItem('hf_lang') || 'de');
+        }
+        // Favoriten
+        if (data.favorites?.length) {
+          localStorage.setItem('hf_favorites', JSON.stringify(data.favorites));
+        }
+        // Notizen
+        if (data.notes?.length) {
+          localStorage.setItem('hf_notes', JSON.stringify(data.notes));
+        }
+        // Newsletter
+        if (data.newsletter !== undefined) {
+          localStorage.setItem('hf_newsletter_consent', data.newsletter ? '1' : '0');
         }
       }
     } catch(e) { console.warn('Firestore load:', e); }
@@ -420,20 +467,59 @@
     _db.collection('users').doc(uid).onSnapshot(doc => {
       if (!doc.exists || !window.state) return;
       const data = doc.data();
-      if (!data?.chats) return;
-      const remote = JSON.stringify(data.chats);
-      if (JSON.stringify(window.state.chats) !== remote) {
-        window.state.chats = data.chats;
-        if (data.activeChat) window.state.activeChatId = data.activeChat;
-        localStorage.setItem('hf_chats', remote);
-        if (typeof renderChatList==='function') { renderChatList(); renderMessages(); }
-        const t=document.createElement('div');
-        t.style.cssText='position:fixed;bottom:90px;right:16px;background:rgba(92,187,138,0.15);border:1px solid rgba(92,187,138,0.4);color:#5cbb8a;padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;';
-        t.textContent='Sync von anderem Gerät';
-        document.body.appendChild(t);
-        setTimeout(()=>t.remove(),3000);
+      let changed = false;
+
+      // Chats synchronisieren
+      if (data.chats?.length) {
+        const remote = JSON.stringify(data.chats);
+        if (JSON.stringify(window.state.chats) !== remote) {
+          window.state.chats = data.chats;
+          if (data.activeChat) window.state.activeChatId = data.activeChat;
+          localStorage.setItem('hf_chats', remote);
+          if (typeof renderChatList==='function') { renderChatList(); renderMessages(); }
+          changed = true;
+        }
       }
-    }, e=>console.warn('Sync:', e));
+
+      // Einstellungen synchronisieren
+      if (data.settings) {
+        const s = data.settings;
+        const curLang = localStorage.getItem('hf_lang');
+        if (s.madhab && s.madhab !== localStorage.getItem('hf_madhab')) {
+          localStorage.setItem('hf_madhab', s.madhab); changed = true;
+        }
+        if (s.lang && s.lang !== curLang) {
+          localStorage.setItem('hf_lang', s.lang);
+          if (typeof applyLang === 'function') applyLang(s.lang);
+          changed = true;
+        }
+        if (s.aiStyle) localStorage.setItem('hf_aiStyle', s.aiStyle);
+      }
+
+      // Favoriten synchronisieren
+      if (data.favorites?.length) {
+        const remFav = JSON.stringify(data.favorites);
+        if (remFav !== localStorage.getItem('hf_favorites')) {
+          localStorage.setItem('hf_favorites', remFav); changed = true;
+        }
+      }
+
+      // Notizen synchronisieren
+      if (data.notes?.length) {
+        const remNotes = JSON.stringify(data.notes);
+        if (remNotes !== localStorage.getItem('hf_notes')) {
+          localStorage.setItem('hf_notes', remNotes); changed = true;
+        }
+      }
+
+      if (changed) {
+        const t = document.createElement('div');
+        t.style.cssText = 'position:fixed;bottom:90px;right:16px;background:rgba(92,187,138,0.15);border:1px solid rgba(92,187,138,0.4);color:#5cbb8a;padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;pointer-events:none;';
+        t.textContent = '☁️ Sync von anderem Gerät';
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 3000);
+      }
+    }, e => console.warn('Sync:', e));
   }
 
   // ── Topbar: User-Avatar anzeigen ───────────────────
@@ -461,12 +547,41 @@
     if (!window._fbUser || !window._fbDb || !window.state) return;
     clearTimeout(_syncTimer);
     _syncTimer = setTimeout(() => {
-      _db.collection('users').doc(window._fbUser.uid).set({
-        chats: window.state.chats,
+      const settings = {
+        madhab:  localStorage.getItem('hf_madhab')  || 'hanafi',
+        lang:    localStorage.getItem('hf_lang')    || 'de',
+        aiStyle: localStorage.getItem('hf_aiStyle') || 'akademisch',
+        theme:   localStorage.getItem('hf_theme')   || 'dark',
+      };
+      const favRaw   = localStorage.getItem('hf_favorites');
+      const notesRaw = localStorage.getItem('hf_notes');
+      const payload = {
+        chats:      window.state.chats,
         activeChat: window.state.activeChatId || '',
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true }).catch(e=>console.warn('Sync save:',e));
+        settings,
+        favorites:  favRaw   ? JSON.parse(favRaw)   : [],
+        notes:      notesRaw ? JSON.parse(notesRaw) : [],
+        newsletter: localStorage.getItem('hf_newsletter_consent') === '1',
+        updatedAt:  firebase.firestore.FieldValue.serverTimestamp()
+      };
+      _db.collection('users').doc(window._fbUser.uid)
+        .set(payload, { merge: true })
+        .catch(e => console.warn('Sync save:', e));
     }, 1500);
+  };
+
+  // Einstellungen sofort zu Firestore pushen (ohne Debounce)
+  window._syncSettingsNow = function() {
+    if (!window._fbUser || !window._fbDb) return;
+    const settings = {
+      madhab:  localStorage.getItem('hf_madhab')  || 'hanafi',
+      lang:    localStorage.getItem('hf_lang')    || 'de',
+      aiStyle: localStorage.getItem('hf_aiStyle') || 'akademisch',
+      theme:   localStorage.getItem('hf_theme')   || 'dark',
+    };
+    _db.collection('users').doc(window._fbUser.uid)
+      .set({ settings, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+      .catch(e => console.warn('Settings sync:', e));
   };
 
   document.addEventListener('DOMContentLoaded', function() {
@@ -888,6 +1003,7 @@ body {
 }
 
 .provider-badge {
+  display: none !important;
   font-size: 10.5px; padding: 4px 10px; border-radius: 20px; font-weight: 600;
   letter-spacing: 0.4px; background: var(--accent-dim); color: var(--accent);
   border: 1px solid var(--border-accent); flex-shrink: 0;
@@ -1980,6 +2096,32 @@ body {
 }
 .attach-chip-rm:hover { color: var(--danger); }
 
+/* ── Intro Wizard ───────────────────────────── */
+._istep { display:none;flex-direction:column;padding:24px 28px 4px;min-height:320px;animation-fill-mode:forwards; }
+._istep.active { display:flex; }
+@keyframes introIn     { from{transform:translateX(48px);opacity:0} to{transform:none;opacity:1} }
+@keyframes introInBack { from{transform:translateX(-48px);opacity:0} to{transform:none;opacity:1} }
+@keyframes introOut     { from{transform:none;opacity:1} to{transform:translateX(-48px);opacity:0} }
+@keyframes introOutBack { from{transform:none;opacity:1} to{transform:translateX(48px);opacity:0} }
+._istep.anim-in     { animation:introIn     .34s ease; }
+._istep.anim-in-back{ animation:introInBack .34s ease; }
+._istep.anim-out    { animation:introOut    .34s ease; }
+._istep.anim-out-back{animation:introOutBack .34s ease; }
+.idot { height:8px;border-radius:4px;background:rgba(255,255,255,0.13);transition:all .3s ease;width:8px;flex-shrink:0; }
+.idot.active { background:#d4ac64;width:24px; }
+.wizard-nav { display:flex;align-items:center;justify-content:space-between;padding:12px 28px 20px;border-top:1px solid rgba(255,255,255,0.06); }
+.wiz-btn-back { padding:9px 18px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .18s;background:none;color:#6b6560; }
+.wiz-btn-back:hover { color:#9b9080; }
+.wiz-btn-next { padding:9px 22px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .18s;background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f; }
+.wiz-btn-next:hover { opacity:.88; transform:translateY(-1px); }
+.imadh-card { background:rgba(255,255,255,0.03);border:1.5px solid rgba(255,255,255,0.07);border-radius:12px;padding:13px 15px;cursor:pointer;transition:all .18s;text-align:left; }
+.imadh-card:hover { border-color:rgba(212,172,100,0.3); }
+.imadh-card.selected { border-color:rgba(212,172,100,0.65);background:rgba(212,172,100,0.09); }
+.ilang-btn { padding:7px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#9b9080;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .18s; }
+.ilang-btn:hover { border-color:rgba(212,172,100,0.3);color:#c8b89a; }
+.ilang-btn.active { border-color:rgba(212,172,100,0.6);background:rgba(212,172,100,0.14);color:#d4ac64; }
+@media(max-width:500px) { ._istep { padding:20px 18px 4px; } .wizard-nav { padding:10px 18px 16px; } }
+
 /* Attachment image in message bubble */
 .msg-attach-img {
   max-width: 240px; max-height: 200px; border-radius: 8px;
@@ -2296,8 +2438,8 @@ body {
 }
 .more-menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 #prayer-dropdown {
-  position: absolute; top: 56px; right: 100px;
-  width: 280px; z-index: 500;
+  position: absolute; top: 56px; right: 60px;
+  width: 300px; z-index: 500;
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
@@ -2308,17 +2450,31 @@ body {
 }
 #prayer-dropdown.hidden { display: none; }
 .prayer-header {
-  padding: 12px 16px;
+  padding: 11px 16px;
   background: linear-gradient(135deg, var(--accent-glow), transparent);
   border-bottom: 1px solid var(--border);
-  font-size: 12.5px; font-weight: 600; color: var(--accent);
+  font-size: 12px; font-weight: 600; color: var(--accent);
   display: flex; align-items: center; gap: 8px;
 }
+/* ── Prayer tabs ── */
+.prayer-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
+.prayer-tab {
+  flex: 1; padding: 7px 4px; font-size: 10px; font-weight: 600;
+  color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .18s, border-color .18s; letter-spacing: 0.3px;
+  font-family: var(--font-sans); text-transform: uppercase;
+}
+.prayer-tab:hover { color: var(--text-secondary); }
+.prayer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* ── Tab content panels ── */
+.prayer-tab-panel { display: none; }
+.prayer-tab-panel.active { display: block; }
+/* ── Times tab ── */
 .prayer-hijri { font-size: 11px; color: var(--text-muted); padding: 8px 16px; border-bottom: 1px solid var(--border); }
-.prayer-times-list { padding: 8px 0; }
+.prayer-times-list { padding: 6px 0; }
 .prayer-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 16px; transition: background var(--transition);
+  padding: 5px 16px; transition: background var(--transition);
 }
 .prayer-row:hover { background: var(--bg-hover); }
 .prayer-row.next { background: var(--accent-dim); }
@@ -2326,7 +2482,72 @@ body {
 .prayer-row.next .prayer-name { color: var(--accent); font-weight: 600; }
 .prayer-time { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .prayer-next-badge { font-size: 9px; background: var(--accent); color: #1a1200; padding: 1px 5px; border-radius: 6px; font-weight: 700; }
-.prayer-loading { padding: 20px; text-align: center; font-size: 12px; color: var(--text-muted); }
+.prayer-loading { padding: 18px; text-align: center; font-size: 12px; color: var(--text-muted); }
+/* ── Qibla tab ── */
+.qibla-wrap { padding: 18px 16px; text-align: center; }
+.qibla-compass {
+  position: relative; width: 110px; height: 110px;
+  margin: 0 auto 12px; border-radius: 50%;
+  background: radial-gradient(circle, var(--bg-tertiary) 60%, var(--bg-primary));
+  border: 2px solid var(--border-light);
+  box-shadow: 0 0 0 4px var(--accent-dim), inset 0 0 20px rgba(0,0,0,0.3);
+}
+.qibla-ring {
+  position: absolute; inset: 6px; border-radius: 50%;
+  border: 1px dashed rgba(212,172,100,0.25);
+}
+.qibla-n { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: var(--accent); letter-spacing: 0.5px; }
+.qibla-arrow {
+  position: absolute; top: 50%; left: 50%;
+  width: 4px; height: 46px;
+  margin-left: -2px; margin-top: -40px;
+  transform-origin: bottom center;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, var(--accent) 0%, rgba(212,172,100,0.3) 100%);
+  transition: transform 0.8s cubic-bezier(0.34,1.56,0.64,1);
+}
+.qibla-arrow::after {
+  content: '☪️';
+  position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+  font-size: 13px; line-height: 1;
+}
+.qibla-center {
+  position: absolute; top: 50%; left: 50%;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); transform: translate(-50%,-50%);
+}
+.qibla-degrees { font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+.qibla-label { font-size: 11px; color: var(--text-muted); }
+/* ── Moschee tab ── */
+.mosque-wrap { padding: 16px; }
+.mosque-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 11px 16px; border-radius: 10px;
+  background: linear-gradient(135deg,var(--accent),#a07830); color: #0c0d0f;
+  font-size: 13px; font-weight: 600; border: none; cursor: pointer;
+  font-family: var(--font-sans); transition: opacity .2s, transform .15s;
+  margin-bottom: 10px;
+}
+.mosque-btn:hover { opacity: .88; transform: translateY(-1px); }
+.mosque-info { font-size: 11px; color: var(--text-muted); text-align: center; line-height: 1.5; }
+/* ── Tasbeeh tab ── */
+.tasbeeh-wrap { padding: 14px 16px; text-align: center; }
+.tasbeeh-phrase { font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 4px; min-height: 22px; }
+.tasbeeh-arabic { font-size: 18px; color: var(--text-primary); margin-bottom: 10px; direction: rtl; }
+.tasbeeh-count { font-size: 44px; font-weight: 700; color: var(--text-primary); line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.tasbeeh-progress { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 12px; overflow: hidden; }
+.tasbeeh-progress-fill { height: 100%; background: linear-gradient(90deg,var(--accent),#a07830); border-radius: 2px; transition: width .2s; }
+.tasbeeh-tap {
+  width: 80px; height: 80px; border-radius: 50%; border: 2px solid var(--accent);
+  background: var(--accent-dim); color: var(--accent);
+  font-size: 28px; cursor: pointer; transition: transform .1s, background .15s;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 10px; -webkit-tap-highlight-color: transparent;
+}
+.tasbeeh-tap:active { transform: scale(0.92); background: rgba(212,172,100,0.25); }
+.tasbeeh-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
+.tasbeeh-reset { background: none; border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-family: var(--font-sans); transition: all .15s; }
+.tasbeeh-reset:hover { border-color: var(--danger); color: var(--danger); }
 
 /* ═══════════════════════════════════════════════
    FEATURE: STATS MODAL
@@ -2491,106 +2712,254 @@ body {
   </div>
 
   <!-- STUFE 2: Google Sign-In (versteckt bis Passwort korrekt) -->
-  <div id="_auth_step2" style="display:none;flex-direction:column;align-items:center;gap:14px;
+  <div id="_auth_step2" style="display:none;flex-direction:column;align-items:center;gap:12px;
     width:min(340px,90vw);opacity:0;transform:translateY(12px);transition:opacity .35s,transform .35s;">
     <div id="_s2_label" style="font-size:12px;color:#9b9080;text-align:center;letter-spacing:0.3px;">Schritt 2 von 2 — Konto erstellen</div>
-    <div id="_s2_hint" style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.8;">
+    <div id="_s2_hint" style="font-size:13px;color:#f0ebe0;text-align:center;opacity:0.85;line-height:1.5;">
       ✓ Zugangscode korrekt — erstelle jetzt dein Konto
     </div>
+    <!-- Haupt-Button: Registrieren oder Anmelden -->
     <button id="_google_signin_btn" onclick="_startGoogleSignIn()"
       style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
-      padding:13px 20px;border-radius:12px;border:1.5px solid rgba(255,255,255,0.15);
-      background:rgba(255,255,255,0.06);color:#f0ebe0;font-size:14px;font-weight:500;
+      padding:13px 20px;border-radius:12px;border:1.5px solid rgba(212,172,100,0.35);
+      background:rgba(212,172,100,0.1);color:#f0ebe0;font-size:14px;font-weight:600;
       cursor:pointer;font-family:inherit;transition:all .2s;"
-      onmouseenter="this.style.background='rgba(255,255,255,0.1)'"
-      onmouseleave="this.style.background='rgba(255,255,255,0.06)'">
+      onmouseenter="this.style.background='rgba(212,172,100,0.18)'"
+      onmouseleave="this.style.background='rgba(212,172,100,0.10)'">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
       <span id="_s2_btn_text">Mit Google registrieren</span>
     </button>
-    <div id="_s2_footer" style="font-size:11px;color:#5e5850;text-align:center;">Einmalige Registrierung — danach einfach anmelden</div>
+    <!-- Toggle-Link -->
+    <div id="_s2_toggle" style="font-size:12px;color:#5e5850;text-align:center;cursor:pointer;
+      padding:4px 0;border-bottom:1px solid transparent;transition:color .15s;"
+      onmouseenter="this.style.color='#9b9080'" onmouseleave="this.style.color='#5e5850'">
+      Bereits registriert? <span style="color:#9b9080;text-decoration:underline;" onclick="_toggleAuthMode()">Anmelden</span>
+    </div>
+    <div id="_s2_footer" style="font-size:10.5px;color:#3a3630;text-align:center;">Einmalige Registrierung — danach einfach anmelden</div>
   </div>
 
 </div>
 <!-- ── END AUTH OVERLAY ──────────────────────────── -->
 
-<!-- ── INTRO MODAL ──────────────────────────────── -->
+<!-- ── INTRO WIZARD ──────────────────────────────── -->
 <div id="_intro_modal" style="display:none;position:fixed;inset:0;z-index:10000;
-  background:rgba(8,9,11,0.92);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-  align-items:center;justify-content:center;padding:20px;animation:fadeIn .35s ease both;">
-  <div style="background:linear-gradient(160deg,#161718 0%,#0e0f10 100%);
-    border:1px solid rgba(212,172,100,0.2);border-radius:22px;
-    width:min(480px,95vw);max-height:92vh;overflow-y:auto;
-    box-shadow:0 24px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(212,172,100,0.08);
-    animation:fadeInUp .45s ease both;padding:40px 36px 32px;">
+  background:rgba(6,7,9,0.94);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  align-items:center;justify-content:center;padding:12px;">
+  <div style="background:linear-gradient(160deg,#161718 0%,#0d0e10 100%);
+    border:1px solid rgba(212,172,100,0.18);border-radius:22px;
+    width:min(500px,98vw);max-height:96vh;overflow:hidden;
+    box-shadow:0 32px 90px rgba(0,0,0,0.8),0 0 0 1px rgba(212,172,100,0.07);
+    animation:fadeInUp .4s ease both;display:flex;flex-direction:column;">
 
-    <!-- Logo + Titel -->
-    <div style="text-align:center;margin-bottom:28px;">
-      <div style="font-size:42px;margin-bottom:12px;">☪️</div>
-      <div style="font-size:24px;font-weight:700;color:#f0ebe0;letter-spacing:-0.5px;">Willkommen bei HanafiKI</div>
-      <div style="font-size:14px;color:#9b9080;margin-top:6px;">Dein KI-Assistent für Islamisches Recht</div>
+    <!-- Progress bar -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px;padding:18px 0 0;">
+      <div class="idot active" id="_idot_1"></div>
+      <div class="idot"        id="_idot_2"></div>
+      <div class="idot"        id="_idot_3"></div>
+      <div class="idot"        id="_idot_4"></div>
     </div>
 
-    <!-- Was ist HanafiKI -->
-    <div style="background:rgba(212,172,100,0.06);border:1px solid rgba(212,172,100,0.15);
-      border-radius:14px;padding:18px 20px;margin-bottom:20px;">
-      <div style="font-size:13.5px;color:#d4c8a8;line-height:1.65;">
-        HanafiKI ist ein KI-gestützter Chatbot, der dir Fragen zum islamischen Recht (<em>Fiqh</em>) beantwortet — basierend auf authentischen Quellen der vier sunnitischen Rechtsschulen.
-      </div>
-    </div>
+    <!-- Steps -->
+    <div style="flex:1;position:relative;overflow:hidden;">
 
-    <!-- Die 4 Rechtsschulen -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Hanafitisch</div>
-        <div style="font-size:11.5px;color:#6b6560;">Al-Hidāya · Fatawa Hindiyya</div>
+      <!-- ── STEP 1: Sprache + Begrüßung ── -->
+      <div class="_istep active" id="_istep_1">
+        <div style="text-align:center;margin-bottom:22px;">
+          <div style="font-size:44px;margin-bottom:10px;filter:drop-shadow(0 0 18px rgba(212,172,100,0.3));">☪️</div>
+          <div id="_intro_title" style="font-size:22px;font-weight:700;color:#f0ebe0;letter-spacing:-0.4px;">Willkommen bei HanafiKI</div>
+          <div id="_intro_sub"   style="font-size:13px;color:#9b9080;margin-top:5px;line-height:1.5;">Dein KI-Assistent für islamisches Recht</div>
+        </div>
+        <!-- Sprachauswahl -->
+        <div style="margin-bottom:18px;">
+          <div id="_intro_lang_label" style="font-size:10.5px;color:#5e5850;text-align:center;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.9px;">Sprache wählen · Choose Language</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">
+            <button id="_ilang_de" class="ilang-btn active" onclick="window._introSelectLang('de')">🇩🇪 Deutsch</button>
+            <button id="_ilang_en" class="ilang-btn"        onclick="window._introSelectLang('en')">🇬🇧 English</button>
+            <button id="_ilang_tr" class="ilang-btn"        onclick="window._introSelectLang('tr')">🇹🇷 Türkçe</button>
+            <button id="_ilang_ar" class="ilang-btn"        onclick="window._introSelectLang('ar')">🇸🇦 العربية</button>
+          </div>
+        </div>
+        <!-- Kurz-Beschreibung -->
+        <div style="background:rgba(212,172,100,0.06);border:1px solid rgba(212,172,100,0.14);border-radius:12px;padding:13px 16px;">
+          <div id="_intro_desc" style="font-size:12.5px;color:#c8b89a;line-height:1.65;text-align:center;">
+            KI-gestützter Chatbot für Fragen zum islamischen Recht — basierend auf authentischen Quellen der vier sunnitischen Rechtsschulen.
+          </div>
+        </div>
       </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Malikitisch</div>
-        <div style="font-size:11.5px;color:#6b6560;">Al-Mudawwana · Al-Muwatta</div>
-      </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Schafiitisch</div>
-        <div style="font-size:11.5px;color:#6b6560;">Al-Umm · Minhaj al-Talibin</div>
-      </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:14px 16px;">
-        <div style="font-size:12px;font-weight:600;color:#d4ac64;margin-bottom:4px;">Hanbalitisch</div>
-        <div style="font-size:11.5px;color:#6b6560;">Al-Mughni · Rawdat al-Nadiyya</div>
-      </div>
-    </div>
 
-    <!-- Hinweis -->
-    <div style="font-size:12px;color:#5e5850;text-align:center;margin-bottom:24px;line-height:1.6;">
-      Die KI ersetzt keinen qualifizierten Gelehrten. Für verbindliche religiöse Entscheidungen wende dich bitte an einen Imam oder Mufti.
-    </div>
+      <!-- ── STEP 2: Über HanafiKI + Rechtsschulen ── -->
+      <div class="_istep" id="_istep_2">
+        <div style="text-align:center;margin-bottom:18px;">
+          <div style="font-size:28px;margin-bottom:8px;">📚</div>
+          <div style="font-size:17px;font-weight:700;color:#f0ebe0;">Die vier Rechtsschulen</div>
+          <div style="font-size:12px;color:#6b6560;margin-top:4px;">Quellen &amp; Methodik</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:11px;padding:12px 14px;">
+            <div id="_intro_hanafi_name"  style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;">Hanafitisch</div>
+            <div id="_intro_hanafi_src"   style="font-size:10.5px;color:#5e5850;line-height:1.5;">Al-Hidāya · Fatawa Hindiyya</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:11px;padding:12px 14px;">
+            <div id="_intro_maliki_name"  style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;">Malikitisch</div>
+            <div id="_intro_maliki_src"   style="font-size:10.5px;color:#5e5850;line-height:1.5;">Al-Mudawwana · Al-Muwatta</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:11px;padding:12px 14px;">
+            <div id="_intro_shafii_name"  style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;">Schafiitisch</div>
+            <div id="_intro_shafii_src"   style="font-size:10.5px;color:#5e5850;line-height:1.5;">Al-Umm · Minhaj al-Talibin</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:11px;padding:12px 14px;">
+            <div id="_intro_hanbali_name" style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;">Hanbalitisch</div>
+            <div id="_intro_hanbali_src"  style="font-size:10.5px;color:#5e5850;line-height:1.5;">Al-Mughni · Rawdat al-Nadiyya</div>
+          </div>
+        </div>
+        <div id="_intro_disclaimer" style="font-size:11px;color:#3e3a34;text-align:center;line-height:1.6;">
+          Die KI ersetzt keinen qualifizierten Gelehrten. Für verbindliche Entscheidungen bitte Imam oder Mufti konsultieren.
+        </div>
+      </div>
 
-    <!-- CTA -->
-    <button onclick="window._closeIntro()" style="width:100%;padding:15px;border-radius:14px;border:none;
-      background:linear-gradient(135deg,#d4ac64,#a07830);color:#0c0d0f;
-      font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;
-      letter-spacing:0.2px;transition:opacity .2s;"
-      onmouseenter="this.style.opacity='0.88'" onmouseleave="this.style.opacity='1'">
-      Verstanden — Los geht's
-    </button>
+      <!-- ── STEP 3: Rechtsschule wählen ── -->
+      <div class="_istep" id="_istep_3">
+        <div style="text-align:center;margin-bottom:18px;">
+          <div style="font-size:28px;margin-bottom:8px;">⚖️</div>
+          <div id="_intro_madh_title" style="font-size:17px;font-weight:700;color:#f0ebe0;">Deine Rechtsschule</div>
+          <div id="_intro_madh_sub"   style="font-size:12px;color:#6b6560;margin-top:4px;">Kann später in den Einstellungen geändert werden</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button class="imadh-card selected" id="_imadh_hanafi"  onclick="_introSetMadhab('hanafi')">
+            <div style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;" id="_imn_hanafi">Hanafitisch</div>
+            <div style="font-size:10.5px;color:#5e5850;" id="_ims_hanafi">Abu Hanifa (699–767)</div>
+          </button>
+          <button class="imadh-card" id="_imadh_maliki"  onclick="_introSetMadhab('maliki')">
+            <div style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;" id="_imn_maliki">Malikitisch</div>
+            <div style="font-size:10.5px;color:#5e5850;" id="_ims_maliki">Malik ibn Anas (711–795)</div>
+          </button>
+          <button class="imadh-card" id="_imadh_shafii"  onclick="_introSetMadhab('shafii')">
+            <div style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;" id="_imn_shafii">Schafiitisch</div>
+            <div style="font-size:10.5px;color:#5e5850;" id="_ims_shafii">al-Shafi'i (767–820)</div>
+          </button>
+          <button class="imadh-card" id="_imadh_hanbali" onclick="_introSetMadhab('hanbali')">
+            <div style="font-size:12px;font-weight:700;color:#d4ac64;margin-bottom:3px;" id="_imn_hanbali">Hanbalitisch</div>
+            <div style="font-size:10.5px;color:#5e5850;" id="_ims_hanbali">Ahmad ibn Hanbal (780–855)</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── STEP 4: Newsletter + Abschluss ── -->
+      <div class="_istep" id="_istep_4">
+        <div style="text-align:center;margin-bottom:20px;">
+          <div style="font-size:36px;margin-bottom:10px;">✨</div>
+          <div id="_intro_finish_title" style="font-size:18px;font-weight:700;color:#f0ebe0;">Alles bereit!</div>
+          <div id="_intro_finish_sub"   style="font-size:12.5px;color:#7a7068;margin-top:5px;line-height:1.5;">
+            Du kannst jetzt deine erste Frage stellen.
+          </div>
+        </div>
+        <!-- Newsletter -->
+        <label style="display:flex;align-items:flex-start;gap:12px;background:rgba(212,172,100,0.05);border:1px solid rgba(212,172,100,0.14);border-radius:12px;padding:14px 16px;cursor:pointer;margin-bottom:14px;">
+          <input type="checkbox" id="_intro_newsletter" style="width:16px;height:16px;margin-top:1px;accent-color:#d4ac64;flex-shrink:0;">
+          <div>
+            <div id="_intro_nl_title" style="font-size:12.5px;font-weight:600;color:#c8b89a;margin-bottom:3px;">Newsletter erhalten</div>
+            <div id="_intro_nl_desc"  style="font-size:11px;color:#5e5850;line-height:1.5;">Updates zu neuen Features, Fiqh-Inhalten und islamischen Ereignissen. Jederzeit abbestellbar.</div>
+          </div>
+        </label>
+        <!-- Datenschutz-Hinweis -->
+        <div id="_intro_privacy" style="font-size:10.5px;color:#3a3630;text-align:center;line-height:1.6;">
+          Mit dem Start stimmst du unseren <span style="color:#6b6560;cursor:pointer;" onclick="openLegalModal('datenschutz')">Datenschutzbestimmungen</span> und <span style="color:#6b6560;cursor:pointer;" onclick="openLegalModal('nutzung')">Nutzungsbedingungen</span> zu.
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <!-- Navigation -->
+    <div class="wizard-nav">
+      <button class="wiz-btn-back" id="_intro_back" onclick="_introBack()" style="visibility:hidden;">← Zurück</button>
+      <button class="wiz-btn-next" id="_intro_next" onclick="_introNext()">Weiter →</button>
+    </div>
   </div>
 </div>
 
 <script>
 (function() {
+  let _iStep = 1;
+  const _ISTEPS = 4;
+  let _introMadhab = localStorage.getItem('hf_madhab') || 'hanafi';
+
+  function _iGoTo(next, back) {
+    if (next < 1 || next > _ISTEPS) return;
+    const cur = document.getElementById('_istep_' + _iStep);
+    const nxt = document.getElementById('_istep_' + next);
+    if (!cur || !nxt) return;
+    cur.classList.add(back ? 'anim-out-back' : 'anim-out');
+    setTimeout(() => {
+      cur.classList.remove('active','anim-out','anim-out-back');
+      _iStep = next;
+      nxt.classList.add('active', back ? 'anim-in-back' : 'anim-in');
+      setTimeout(() => nxt.classList.remove('anim-in','anim-in-back'), 380);
+      _iUpdateUI();
+    }, 320);
+  }
+
+  function _iUpdateUI() {
+    for (let i = 1; i <= _ISTEPS; i++) {
+      const d = document.getElementById('_idot_' + i);
+      if (d) { d.classList.toggle('active', i <= _iStep); }
+    }
+    const back = document.getElementById('_intro_back');
+    const next = document.getElementById('_intro_next');
+    if (back) back.style.visibility = _iStep > 1 ? 'visible' : 'hidden';
+    if (next) {
+      const isLast = _iStep === _ISTEPS;
+      next.textContent = isLast ? (typeof T==='function' ? T('getStarted') : 'Los geht\'s →') : 'Weiter →';
+    }
+  }
+
+  window._introNext = function() {
+    if (_iStep === _ISTEPS) { window._closeIntro(); return; }
+    _iGoTo(_iStep + 1, false);
+  };
+  window._introBack = function() { _iGoTo(_iStep - 1, true); };
+
+  window._introSetMadhab = function(m) {
+    _introMadhab = m;
+    localStorage.setItem('hf_madhab', m);
+    ['hanafi','maliki','shafii','hanbali'].forEach(s => {
+      const c = document.getElementById('_imadh_' + s);
+      if (c) c.classList.toggle('selected', s === m);
+    });
+  };
+
   window._closeIntro = function() {
+    // Newsletter-Zustimmung speichern
+    const nlChecked = document.getElementById('_intro_newsletter')?.checked || false;
+    localStorage.setItem('hf_newsletter_consent', nlChecked ? '1' : '0');
+    if (nlChecked) localStorage.setItem('hf_newsletter_consent_at', Date.now().toString());
+    // Madhab sicherstellen
+    localStorage.setItem('hf_madhab', _introMadhab);
+    // Sprache anwenden
+    if (typeof applyLang === 'function') applyLang(localStorage.getItem('hf_lang') || 'de');
+    // Intro als gesehen markieren
     localStorage.setItem('hf_intro_seen', '1');
     const m = document.getElementById('_intro_modal');
     if (!m) return;
-    m.style.opacity = '0';
-    m.style.transition = 'opacity .3s';
-    setTimeout(() => m.remove(), 320);
+    m.style.opacity = '0'; m.style.transition = 'opacity .32s';
+    setTimeout(() => { m.style.display = 'none'; m.remove(); }, 340);
   };
 
   document.addEventListener('DOMContentLoaded', function() {
+    // Gespeicherte Madhab vorauswählen
+    const savedMadhab = localStorage.getItem('hf_madhab') || 'hanafi';
+    _introMadhab = savedMadhab;
+    ['hanafi','maliki','shafii','hanbali'].forEach(s => {
+      const c = document.getElementById('_imadh_' + s);
+      if (c) c.classList.toggle('selected', s === savedMadhab);
+    });
+
+    // Gespeicherte Sprache anwenden
+    const savedLang = localStorage.getItem('hf_lang') || 'de';
+    if (typeof window._introSelectLang === 'function') window._introSelectLang(savedLang);
+
     if (!localStorage.getItem('hf_intro_seen')) {
       const m = document.getElementById('_intro_modal');
-      if (m) {
-        m.style.display = 'flex';
-      }
+      if (m) { m.style.display = 'flex'; _iUpdateUI(); }
     }
   });
 })();
@@ -2614,7 +2983,7 @@ body {
     </div>
     <button class="btn-new-chat" onclick="newChat()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Neuer Chat
+      <span id="new-chat-text">Neuer Chat</span>
     </button>
   </div>
 
@@ -2739,15 +3108,71 @@ body {
     </button>
   </div>
 
-  <!-- Prayer times dropdown -->
+  <!-- Prayer / Islamic Tools dropdown -->
   <div id="prayer-dropdown" class="hidden">
     <div class="prayer-header">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      Islamischer Kalender &amp; Gebetszeiten
+      Islamischer Assistent
     </div>
-    <div class="prayer-hijri" id="prayer-hijri">Hijri-Datum wird geladen…</div>
-    <div class="prayer-times-list" id="prayer-times-list">
-      <div class="prayer-loading">Standort wird ermittelt…</div>
+
+    <!-- Tabs -->
+    <div class="prayer-tabs">
+      <button class="prayer-tab active" id="ptab-times"   onclick="showPrayerTab('times')">☪️ Gebetszeiten</button>
+      <button class="prayer-tab"        id="ptab-qibla"   onclick="showPrayerTab('qibla')">🧭 Qibla</button>
+      <button class="prayer-tab"        id="ptab-mosque"  onclick="showPrayerTab('mosque')">🕌 Moschee</button>
+      <button class="prayer-tab"        id="ptab-tasbeeh" onclick="showPrayerTab('tasbeeh')">📿 Tasbeeh</button>
+    </div>
+
+    <!-- Tab: Gebetszeiten -->
+    <div class="prayer-tab-panel active" id="ppanel-times">
+      <div class="prayer-hijri" id="prayer-hijri">Hijri-Datum wird geladen…</div>
+      <div class="prayer-times-list" id="prayer-times-list">
+        <div class="prayer-loading">Standort wird ermittelt…</div>
+      </div>
+    </div>
+
+    <!-- Tab: Qibla-Kompass -->
+    <div class="prayer-tab-panel" id="ppanel-qibla">
+      <div class="qibla-wrap">
+        <div class="qibla-compass" id="qibla-compass">
+          <div class="qibla-ring"></div>
+          <div class="qibla-n">N</div>
+          <div class="qibla-arrow" id="qibla-arrow" style="transform:rotate(0deg)"></div>
+          <div class="qibla-center"></div>
+        </div>
+        <div class="qibla-degrees" id="qibla-deg">–°</div>
+        <div class="qibla-label" id="qibla-label">Standort wird ermittelt…</div>
+      </div>
+    </div>
+
+    <!-- Tab: Moschee -->
+    <div class="prayer-tab-panel" id="ppanel-mosque">
+      <div class="mosque-wrap">
+        <button class="mosque-btn" id="mosque-btn-main" onclick="findNearbyMosque()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+          Moscheen in der Nähe
+        </button>
+        <button class="mosque-btn" id="mosque-btn-halal" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border-accent);margin-bottom:0;" onclick="findNearbyMosque('halal')">
+          🍖 Halal-Restaurants finden
+        </button>
+        <div class="mosque-info" id="mosque-info" style="margin-top:10px;">Öffnet Google Maps mit deinem Standort</div>
+      </div>
+    </div>
+
+    <!-- Tab: Tasbeeh-Zähler -->
+    <div class="prayer-tab-panel" id="ppanel-tasbeeh">
+      <div class="tasbeeh-wrap">
+        <div class="tasbeeh-phrase" id="tsb-phrase">Subhanallah</div>
+        <div class="tasbeeh-arabic" id="tsb-arabic">سُبْحَانَ اللَّهِ</div>
+        <div class="tasbeeh-count" id="tsb-count">0</div>
+        <div class="tasbeeh-progress"><div class="tasbeeh-progress-fill" id="tsb-fill" style="width:0%"></div></div>
+        <div class="tasbeeh-meta" id="tsb-meta">0 / 33</div>
+        <button class="tasbeeh-tap" id="tsb-tap" onclick="tasbeehTap()">📿</button>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:2px;">
+          <button class="tasbeeh-reset" onclick="tasbeehReset()">Zurücksetzen</button>
+          <button class="tasbeeh-reset" onclick="tasbeehSkip()" style="border-color:var(--border-accent);color:var(--accent);">Überspringen →</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -4604,12 +5029,177 @@ function getSettingMaxTokens() {
   const map = { kurz: 1024, mittel: 4096, lang: 8192, 'sehr-lang': 16384 };
   return map[localStorage.getItem('hf_aiLength') || 'mittel'] || 4096;
 }
+// ═══════════════════════════════════════════════
+//  MEHRSPRACHIGKEIT (i18n)
+// ═══════════════════════════════════════════════
+const TRANSLATIONS = {
+  de: {
+    newChat:'Neuer Chat', inputPlaceholder:'Islamisches Recht fragen…',
+    prayerTab:'☪️ Gebetszeiten', qiblaTab:'🧭 Qibla', mosqueTab:'🕌 Moschee', tasbeehTab:'📿 Tasbeeh',
+    nextPrayer:'NÄCHSTES',
+    fajr:'Fadschr', dhuhr:'Dhuhr', asr:'Asr', maghrib:'Maghrib', isha:'Ischa',
+    sunrise:'Sonnenaufgang', imsak:'Imsak', midnight:'Isl. Mitternacht',
+    lastthird:'Letztes Drittel der Nacht', firstthird:'1. Nachtdrittel',
+    extraTimes:'Weitere Zeiten',
+    welcomeTitle:'Willkommen bei HanafiKI',
+    welcomeSub:'Dein KI-Assistent für islamisches Recht',
+    welcomeDesc:'KI-gestützter Chatbot für Fragen zum islamischen Recht — basierend auf authentischen Quellen der vier sunnitischen Rechtsschulen.',
+    disclaimer:'Die KI ersetzt keinen qualifizierten Gelehrten. Für verbindliche religiöse Entscheidungen wende dich bitte an einen Imam oder Mufti.',
+    getStarted:'Verstanden — Los geht\'s', chooseLang:'Sprache wählen',
+    hanafi:'Hanafitisch', maliki:'Malikitisch', shafii:'Schafiitisch', hanbali:'Hanbalitisch',
+    hanafisrc:'Al-Hidāya · Fatawa Hindiyya', malikisrc:'Al-Mudawwana · Al-Muwatta',
+    shafiisrc:'Al-Umm · Minhaj al-Talibin', hanbalilsrc:'Al-Mughni · Rawdat al-Nadiyya',
+    aiLangInstruction:'Antworte immer auf Deutsch, außer der Benutzer schreibt erkennbar in einer anderen Sprache.',
+    findMosque:'Moscheen in der Nähe', findHalal:'Halal-Restaurants finden',
+    mosqueInfo:'Öffnet Google Maps mit deinem Standort',
+    qiblaToMecca:'Richtung Mekka',
+    locating:'Standort wird ermittelt…', locDenied:'Standort verweigert. Bitte Zugriff erlauben.',
+  },
+  en: {
+    newChat:'New Chat', inputPlaceholder:'Ask about Islamic law…',
+    prayerTab:'☪️ Prayer Times', qiblaTab:'🧭 Qibla', mosqueTab:'🕌 Mosque', tasbeehTab:'📿 Tasbeeh',
+    nextPrayer:'NEXT',
+    fajr:'Fajr', dhuhr:'Dhuhr', asr:'Asr', maghrib:'Maghrib', isha:'Isha',
+    sunrise:'Sunrise', imsak:'Imsak', midnight:'Isl. Midnight',
+    lastthird:'Last Third of Night', firstthird:'1st Third of Night',
+    extraTimes:'Additional Times',
+    welcomeTitle:'Welcome to HanafiKI',
+    welcomeSub:'Your AI Assistant for Islamic Law',
+    welcomeDesc:'AI-powered chatbot for questions about Islamic law (Fiqh) — based on authentic sources from the four Sunni schools of jurisprudence.',
+    disclaimer:'The AI does not replace a qualified scholar. For binding religious rulings, please consult an Imam or Mufti.',
+    getStarted:'Got it — Let\'s Go', chooseLang:'Choose Language',
+    hanafi:'Hanafi', maliki:'Maliki', shafii:"Shafi'i", hanbali:'Hanbali',
+    hanafisrc:'Al-Hidaya · Fatawa Hindiyya', malikisrc:'Al-Mudawwana · Al-Muwatta',
+    shafiisrc:'Al-Umm · Minhaj al-Talibin', hanbalilsrc:'Al-Mughni · Rawdat al-Nadiyya',
+    aiLangInstruction:'Always respond in English.',
+    findMosque:'Mosques Near Me', findHalal:'Find Halal Restaurants',
+    mosqueInfo:'Opens Google Maps with your location',
+    qiblaToMecca:'Direction to Mecca',
+    locating:'Determining location…', locDenied:'Location denied. Please allow access.',
+  },
+  tr: {
+    newChat:'Yeni Sohbet', inputPlaceholder:'İslam hukuku hakkında sor…',
+    prayerTab:'☪️ Namaz Vakitleri', qiblaTab:'🧭 Kıble', mosqueTab:'🕌 Cami', tasbeehTab:'📿 Tesbih',
+    nextPrayer:'SONRAKI',
+    fajr:'Sabah', dhuhr:'Öğle', asr:'İkindi', maghrib:'Akşam', isha:'Yatsı',
+    sunrise:'Güneş Doğuşu', imsak:'İmsak', midnight:'İsl. Gece Yarısı',
+    lastthird:'Gecenin Son Üçtebiri', firstthird:'Gecenin İlk Üçtebiri',
+    extraTimes:'Diğer Vakitler',
+    welcomeTitle:'HanafiKI\'ye Hoş Geldiniz',
+    welcomeSub:'İslam Hukuku için YZ Asistanınız',
+    welcomeDesc:'İslam hukuku (Fıkıh) hakkında sorularınızı yanıtlayan yapay zeka sohbet botu — dört Sünni mezhebinin özgün kaynaklarına dayanmaktadır.',
+    disclaimer:'Yapay zeka, yetkili bir alimin yerini tutamaz. Bağlayıcı fetvalar için bir imam veya müftüye danışınız.',
+    getStarted:'Anladım — Başlayalım', chooseLang:'Dil Seçin',
+    hanafi:'Hanefi', maliki:'Maliki', shafii:'Şafii', hanbali:'Hanbeli',
+    hanafisrc:'El-Hidâye · Fetevâ-yı Hindiyye', malikisrc:'El-Müdevvene · El-Muvatta',
+    shafiisrc:'El-Ümm · Minhacü\'t-Tâlibîn', hanbalilsrc:'El-Muğnî · Ravdatü\'n-Nediyye',
+    aiLangInstruction:'Her zaman Türkçe yanıtla.',
+    findMosque:'Yakınımdaki Camiler', findHalal:'Helal Restoran Bul',
+    mosqueInfo:'Konumunuzla Google Maps açılır',
+    qiblaToMecca:'Kabe\'ye Yön',
+    locating:'Konum belirleniyor…', locDenied:'Konum reddedildi. Lütfen izin verin.',
+  },
+  ar: {
+    newChat:'محادثة جديدة', inputPlaceholder:'اسأل عن الفقه الإسلامي…',
+    prayerTab:'☪️ أوقات الصلاة', qiblaTab:'🧭 القبلة', mosqueTab:'🕌 المساجد', tasbeehTab:'📿 التسبيح',
+    nextPrayer:'التالية',
+    fajr:'الفجر', dhuhr:'الظهر', asr:'العصر', maghrib:'المغرب', isha:'العشاء',
+    sunrise:'الشروق', imsak:'الإمساك', midnight:'منتصف الليل الإسلامي',
+    lastthird:'ثلث الليل الأخير', firstthird:'ثلث الليل الأول',
+    extraTimes:'أوقات إضافية',
+    welcomeTitle:'مرحباً بك في هانافي كي آي',
+    welcomeSub:'مساعدك الذكي للفقه الإسلامي',
+    welcomeDesc:'روبوت محادثة بالذكاء الاصطناعي للإجابة على أسئلة الفقه — مبني على مصادر أصيلة من المذاهب الأربعة.',
+    disclaimer:'لا يُغني الذكاء الاصطناعي عن العالم المتخصص. للحصول على فتاوى ملزمة يُرجى استشارة إمام أو مفتٍ.',
+    getStarted:'فهمت — لنبدأ', chooseLang:'اختر اللغة',
+    hanafi:'حنفي', maliki:'مالكي', shafii:'شافعي', hanbali:'حنبلي',
+    hanafisrc:'الهداية · الفتاوى الهندية', malikisrc:'المدوّنة · الموطأ',
+    shafiisrc:'الأم · منهاج الطالبين', hanbalilsrc:'المغني · روضة الندية',
+    aiLangInstruction:'أجب دائمًا باللغة العربية.',
+    findMosque:'مساجد قريبة مني', findHalal:'مطاعم حلال قريبة',
+    mosqueInfo:'يفتح خرائط Google بموقعك',
+    qiblaToMecca:'اتجاه مكة المكرمة',
+    locating:'جارٍ تحديد الموقع…', locDenied:'رُفض الموقع. يرجى السماح بالوصول.',
+  }
+};
+
+let _currentLang = localStorage.getItem('hf_lang') || 'de';
+function T(key) {
+  return (TRANSLATIONS[_currentLang] || TRANSLATIONS.de)[key] || TRANSLATIONS.de[key] || key;
+}
+
+function applyLang(lang) {
+  if (!TRANSLATIONS[lang]) return;
+  _currentLang = lang;
+  localStorage.setItem('hf_lang', lang);
+  // RTL für Arabisch
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  // Schlüssel-UI-Elemente aktualisieren
+  const inp = document.getElementById('message-input');
+  if (inp) inp.placeholder = T('inputPlaceholder');
+  const ncb = document.getElementById('new-chat-text');
+  if (ncb) ncb.textContent = T('newChat');
+  // Prayer-Widget-Tabs
+  ['times','qibla','mosque','tasbeeh'].forEach(t => {
+    const el = document.getElementById('ptab-' + t);
+    if (el) el.textContent = T(t === 'times' ? 'prayerTab' : t === 'qibla' ? 'qiblaTab' : t === 'mosque' ? 'mosqueTab' : 'tasbeehTab');
+  });
+  // Moschee-Buttons
+  const mb = document.getElementById('mosque-btn-main');
+  if (mb) mb.childNodes[mb.childNodes.length-1].textContent = ' ' + T('findMosque');
+  const hb = document.getElementById('mosque-btn-halal');
+  if (hb) hb.textContent = '🍖 ' + T('findHalal');
+  const mi = document.getElementById('mosque-info');
+  if (mi) mi.textContent = T('mosqueInfo');
+  // Qibla-Label
+  const ql = document.getElementById('qibla-label');
+  if (ql && ql.textContent !== T('locating') && ql.textContent !== T('locDenied')) {
+    // keep bearing text if already loaded
+  }
+  // Intro-Modal dynamisch aktualisieren (falls noch offen)
+  _updateIntroLang(lang);
+  // Cloud-Sync anstoßen
+  if (typeof window._syncSettingsNow === 'function') window._syncSettingsNow();
+}
+
+function _updateIntroLang(lang) {
+  const tr = TRANSLATIONS[lang] || TRANSLATIONS.de;
+  const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  const setHtml = (id, val) => { const e = document.getElementById(id); if (e) e.innerHTML = val; };
+  set('_intro_title',      tr.welcomeTitle);
+  set('_intro_sub',        tr.welcomeSub);
+  set('_intro_desc',       tr.welcomeDesc);
+  set('_intro_disclaimer', tr.disclaimer);
+  set('_intro_cta',        tr.getStarted);
+  set('_intro_lang_label', tr.chooseLang);
+  // Rechtsschulen
+  set('_intro_hanafi_name',   tr.hanafi);   set('_intro_hanafi_src',   tr.hanafisrc);
+  set('_intro_maliki_name',   tr.maliki);   set('_intro_maliki_src',   tr.malikisrc);
+  set('_intro_shafii_name',   tr.shafii);   set('_intro_shafii_src',   tr.shafiisrc);
+  set('_intro_hanbali_name',  tr.hanbali);  set('_intro_hanbali_src',  tr.hanbalilsrc);
+  // Lang-Buttons aktuell markieren
+  ['de','en','tr','ar'].forEach(l => {
+    const b = document.getElementById('_ilang_' + l);
+    if (b) {
+      b.style.background = l === lang ? 'rgba(212,172,100,0.2)' : 'rgba(255,255,255,0.04)';
+      b.style.borderColor = l === lang ? 'rgba(212,172,100,0.6)' : 'rgba(255,255,255,0.1)';
+      b.style.color = l === lang ? '#d4ac64' : '#9b9080';
+    }
+  });
+}
+
+window._introSelectLang = function(lang) {
+  _currentLang = lang;
+  localStorage.setItem('hf_lang', lang);
+  _updateIntroLang(lang);
+};
+
+// ── Spracheinstellung →  im System-Prompt ────────
 function getSettingStyleNote() {
   const style = localStorage.getItem('hf_aiStyle') || 'akademisch';
-  const lang = localStorage.getItem('hf_aiLang') || 'de';
   const styleMap = { akademisch: 'akademisch und gelehrt', einfach: 'einfach und verständlich', detailliert: 'detailliert und ausführlich', kompakt: 'kompakt und präzise' };
-  const langMap = { de: 'Deutsch', ar: 'Arabisch', tr: 'Türkisch', en: 'Englisch' };
-  return `\n\nANTWORTSTIL: ${styleMap[style] || style}. SPRACHE: Antworte auf ${langMap[lang] || 'Deutsch'}.`;
+  const tr = TRANSLATIONS[_currentLang] || TRANSLATIONS.de;
+  return `\n\nANTWORTSTIL: ${styleMap[style] || style}. SPRACHANWEISUNG: ${tr.aiLangInstruction}`;
 }
 
 function buildSystemPrompt(policy) {
@@ -4950,9 +5540,9 @@ function selectMadhab(school) {
   localStorage.setItem('hf_madhab', school);
   document.querySelectorAll('.madhab-choice-btn').forEach(b => b.classList.remove('selected'));
   event.currentTarget.classList.add('selected');
-  // Sidebar-Label aktualisieren
   const lbl = document.getElementById('sidebar-madhab-label');
   if (lbl) lbl.textContent = MADHAB_NAMES[school] || school;
+  if (typeof window._syncSettingsNow === 'function') window._syncSettingsNow();
   setTimeout(() => {
     document.getElementById('madhab-modal').classList.add('hidden');
     showToast(`Rechtsschule: ${MADHAB_NAMES[school] || school} gespeichert ✓`, 'success');
@@ -5302,6 +5892,7 @@ function initApp() {
   renderMessages();
   updateApiBanner();
   updateProviderBadge();
+  applyLang(localStorage.getItem('hf_lang') || 'de');
 
   document.getElementById('settings-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('settings-modal')) closeSettings();
@@ -6370,33 +6961,178 @@ function renderPrayerData(payload) {
   const timesEl = document.getElementById('prayer-times-list');
   if (!timesEl || !payload?.timings) return;
 
-  const prayers = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+  const tim = payload.timings;
+  const prayerKeys = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+  const prayerLabels = {
+    Fajr: T('fajr'), Dhuhr: T('dhuhr'), Asr: T('asr'), Maghrib: T('maghrib'), Isha: T('isha')
+  };
+
   const now = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
 
-  // Find next prayer
-  let nextPrayer = null;
-  let nextMins = Infinity;
-  for (const p of prayers) {
-    const t = payload.timings[p];
-    if (!t) continue;
+  // Nächstes Gebet ermitteln
+  let nextPrayer = null, nextMins = Infinity;
+  for (const p of prayerKeys) {
+    const t = tim[p]; if (!t) continue;
     const [h, m] = t.split(':').map(Number);
     const pMins = h * 60 + m;
     if (pMins > nowMins && pMins < nextMins) { nextMins = pMins; nextPrayer = p; }
   }
-  if (!nextPrayer) nextPrayer = 'Fajr'; // wrap to next day
+  if (!nextPrayer) nextPrayer = 'Fajr';
 
-  timesEl.innerHTML = prayers.map(p => {
-    const t = payload.timings[p] || '--:--';
+  // Hauptgebete
+  const mainRows = prayerKeys.map(p => {
+    const t = (tim[p] || '--:--').slice(0, 5);
     const isNext = p === nextPrayer;
     return `<div class="prayer-row${isNext ? ' next' : ''}">
-      <span class="prayer-name">${p}</span>
+      <span class="prayer-name">${prayerLabels[p]}</span>
       <div style="display:flex;align-items:center;gap:6px;">
-        ${isNext ? '<span class="prayer-next-badge">NÄCHSTES</span>' : ''}
+        ${isNext ? `<span class="prayer-next-badge">${T('nextPrayer')}</span>` : ''}
         <span class="prayer-time">${t}</span>
       </div>
     </div>`;
   }).join('');
+
+  // Erweiterte Zeiten
+  const extraDefs = [
+    { key: 'Imsak',     label: T('imsak'),     icon: '🌙' },
+    { key: 'Sunrise',   label: T('sunrise'),   icon: '🌅' },
+    { key: 'Midnight',  label: T('midnight'),  icon: '🌃' },
+    { key: 'Firstthird',label: T('firstthird'),icon: '✨' },
+    { key: 'Lastthird', label: T('lastthird'), icon: '🕌' },
+  ];
+  const extraRows = extraDefs
+    .filter(d => tim[d.key])
+    .map(d => `<div class="prayer-row" style="opacity:0.75;">
+      <span class="prayer-name" style="display:flex;align-items:center;gap:5px;">
+        <span style="font-size:11px;">${d.icon}</span>${d.label}
+      </span>
+      <span class="prayer-time">${(tim[d.key] || '--:--').slice(0,5)}</span>
+    </div>`).join('');
+
+  timesEl.innerHTML = mainRows +
+    `<div style="padding:6px 16px 3px;font-size:10px;font-weight:600;color:var(--text-muted);
+      text-transform:uppercase;letter-spacing:0.7px;border-top:1px solid var(--border);margin-top:4px;">
+      ${T('extraTimes')}
+    </div>` + extraRows;
+}
+
+// ═══════════════════════════════════════════════
+//  ISLAMISCHE TOOLS: TABS / QIBLA / MOSCHEE / TASBEEH
+// ═══════════════════════════════════════════════
+
+// ── Tab-Switching ───────────────────────────────
+function showPrayerTab(tab) {
+  ['times','qibla','mosque','tasbeeh'].forEach(t => {
+    document.getElementById('ptab-' + t)?.classList.toggle('active', t === tab);
+    document.getElementById('ppanel-' + t)?.classList.toggle('active', t === tab);
+  });
+  if (tab === 'qibla') initQibla();
+  if (tab === 'tasbeeh') renderTasbeeh();
+}
+
+// ── Qibla-Kompass ───────────────────────────────
+let _qiblaLoaded = false;
+function initQibla() {
+  if (_qiblaLoaded) return;
+  const degEl   = document.getElementById('qibla-deg');
+  const lblEl   = document.getElementById('qibla-label');
+  const arrowEl = document.getElementById('qibla-arrow');
+  if (!navigator.geolocation) {
+    if (lblEl) lblEl.textContent = 'Geolocation nicht verfügbar';
+    return;
+  }
+  if (lblEl) lblEl.textContent = 'Standort wird ermittelt…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    const qibla = _calcQibla(latitude, longitude);
+    const dirs = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    const dir  = dirs[Math.round(qibla / 22.5) % 16];
+    if (degEl)   degEl.textContent  = Math.round(qibla) + '°';
+    if (lblEl)   lblEl.textContent  = `Richtung Mekka · ${dir}`;
+    if (arrowEl) arrowEl.style.transform = `rotate(${qibla}deg)`;
+    _qiblaLoaded = true;
+  }, () => {
+    if (lblEl) lblEl.textContent = 'Standort verweigert. Bitte Zugriff erlauben.';
+  });
+}
+
+function _calcQibla(lat, lon) {
+  const MECCA_LAT = 21.4225 * Math.PI / 180;
+  const MECCA_LON = 39.8262 * Math.PI / 180;
+  const φ1 = lat * Math.PI / 180;
+  const λ1 = lon * Math.PI / 180;
+  const Δλ = MECCA_LON - λ1;
+  const x  = Math.sin(Δλ) * Math.cos(MECCA_LAT);
+  const y  = Math.cos(φ1) * Math.sin(MECCA_LAT) - Math.sin(φ1) * Math.cos(MECCA_LAT) * Math.cos(Δλ);
+  return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+}
+
+// ── Moschee / Halal-Restaurant-Suche ────────────
+function findNearbyMosque(type) {
+  const query = type === 'halal' ? 'Halal+Restaurant' : 'Moschee';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    window.open(`https://www.google.com/maps/search/${query}/@${latitude},${longitude},14z`, '_blank');
+  }, () => {
+    window.open(`https://www.google.com/maps/search/${query}+in+meiner+N%C3%A4he`, '_blank');
+  });
+}
+
+// ── Tasbeeh-Zähler ──────────────────────────────
+const TASBEEH_PHASES = [
+  { phrase: 'Subhanallah',   arabic: 'سُبْحَانَ اللَّهِ',  target: 33 },
+  { phrase: 'Alhamdulillah', arabic: 'الْحَمْدُ لِلَّهِ', target: 33 },
+  { phrase: 'Allahu Akbar',  arabic: 'اللَّهُ أَكْبَرُ',  target: 34 },
+];
+let _tsbPhase = parseInt(localStorage.getItem('hf_tsb_phase') || '0');
+let _tsbCount = parseInt(localStorage.getItem('hf_tsb_count') || '0');
+let _tsbTotal = parseInt(localStorage.getItem('hf_tsb_total') || '0');
+
+function renderTasbeeh() {
+  const ph = TASBEEH_PHASES[_tsbPhase] || TASBEEH_PHASES[0];
+  const pct = Math.min(100, (_tsbCount / ph.target) * 100);
+  const el = id => document.getElementById(id);
+  if (el('tsb-phrase'))  el('tsb-phrase').textContent  = ph.phrase;
+  if (el('tsb-arabic'))  el('tsb-arabic').textContent  = ph.arabic;
+  if (el('tsb-count'))   el('tsb-count').textContent   = _tsbCount;
+  if (el('tsb-fill'))    el('tsb-fill').style.width    = pct + '%';
+  if (el('tsb-meta'))    el('tsb-meta').textContent    = `${_tsbCount} / ${ph.target}  ·  Gesamt: ${_tsbTotal}`;
+}
+
+function tasbeehTap() {
+  _tsbCount++;
+  _tsbTotal++;
+  const ph = TASBEEH_PHASES[_tsbPhase] || TASBEEH_PHASES[0];
+  if (navigator.vibrate) navigator.vibrate(18);
+  if (_tsbCount >= ph.target) {
+    if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    _tsbPhase = (_tsbPhase + 1) % TASBEEH_PHASES.length;
+    _tsbCount = 0;
+    if (_tsbPhase === 0) {
+      showToast('✓ Subhanallah · Alhamdulillah · Allahu Akbar — vollständig!', 'success');
+    }
+  }
+  localStorage.setItem('hf_tsb_phase', _tsbPhase);
+  localStorage.setItem('hf_tsb_count', _tsbCount);
+  localStorage.setItem('hf_tsb_total', _tsbTotal);
+  renderTasbeeh();
+}
+
+function tasbeehReset() {
+  _tsbPhase = 0; _tsbCount = 0; _tsbTotal = 0;
+  localStorage.setItem('hf_tsb_phase', '0');
+  localStorage.setItem('hf_tsb_count', '0');
+  localStorage.setItem('hf_tsb_total', '0');
+  renderTasbeeh();
+}
+
+function tasbeehSkip() {
+  _tsbCount = 0;
+  _tsbPhase = (_tsbPhase + 1) % TASBEEH_PHASES.length;
+  localStorage.setItem('hf_tsb_phase', _tsbPhase);
+  localStorage.setItem('hf_tsb_count', '0');
+  renderTasbeeh();
 }
 
 // ═══════════════════════════════════════════════
