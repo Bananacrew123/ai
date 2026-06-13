@@ -41,7 +41,23 @@
   const SESSION_KEY = 'hf_fb_ok';
   if (sessionStorage.getItem(SESSION_KEY) === '1') {
     document.addEventListener('DOMContentLoaded', () => {
-      _auth?.onAuthStateChanged(user => {
+      // Firebase SDK ist jetzt geladen — hier (nicht im IIFE-Start) initialisieren
+      if (!_auth) {
+        try {
+          if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+          _auth = firebase.auth();
+          _db   = firebase.firestore();
+        } catch(e) { console.warn('Firebase init (session-check):', e); }
+      }
+      window._fbAuth = _auth;
+      window._fbDb   = window._fbDb || _db;
+      if (!_auth) {
+        // Firebase konnte nicht geladen werden — Session zurücksetzen & Login zeigen
+        sessionStorage.removeItem(SESSION_KEY);
+        location.reload();
+        return;
+      }
+      _auth.onAuthStateChanged(user => {
         if (user && ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(user.email.toLowerCase())) {
           window._fbUser = user; window._fbDb = _db;
           _showTopbarUser(user);
@@ -2630,30 +2646,16 @@ body {
       <div id="settings-tab-api" class="settings-tab-panel">
         <div class="settings-section">
           <div class="settings-section-title">KI-Anbieter</div>
-          <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
-            <button class="provider-tab active" onclick="switchProviderTab('gemini',this)" id="tab-gemini">🔵 Gemini</button>
-            <button class="provider-tab" onclick="switchProviderTab('openai',this)" id="tab-openai">🟣 Grok (xAI)</button>
-            <button class="provider-tab" onclick="switchProviderTab('claude',this)" id="tab-claude">🟠 Claude</button>
-            <button class="provider-tab" onclick="switchProviderTab('ollama',this)" id="tab-ollama">🦙 Llama (lokal)</button>
-            <button class="provider-tab" onclick="switchProviderTab('dual',this)" id="tab-dual">⚡ Dual</button>
-          </div>
-          <!-- Gemini Panel -->
+          <!-- Gemini Panel — Modell & Key fest eingebaut -->
           <div id="panel-gemini" class="provider-panel">
-            <div class="form-group">
-              <label class="form-label">Gemini API-Key</label>
-              <div class="api-key-wrap">
-                <input class="form-input" type="password" id="gemini-key-input" placeholder="AIza…">
-                <button class="toggle-key-btn" onclick="toggleKey('gemini-key-input')">👁</button>
-              </div>
-              <div class="form-hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Gemini API-Key erstellen →</a></div>
-            </div>
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Modell</label>
-              <select class="form-select" id="gemini-model-select">
-                <option value="gemini-2.0-flash">gemini-2.0-flash — Schnell</option>
-                <option value="gemini-2.5-flash">gemini-2.5-flash — Ausgewogen</option>
-                <option value="gemini-3.5-flash" selected>gemini-3.5-flash — Empfohlen ★</option>
-              </select>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-tertiary);border:1px solid var(--border-accent);border-radius:8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <div>
+                  <div style="color:var(--text-primary);font-size:13px;font-weight:600;">gemini-3.5-flash</div>
+                  <div style="color:var(--text-muted);font-size:11px;margin-top:2px;">API-Key und Modell sind fest eingebaut</div>
+                </div>
+              </div>
             </div>
           </div>
           <!-- Grok Panel -->
@@ -2669,7 +2671,7 @@ body {
             <div class="form-group" style="margin-bottom:0">
               <label class="form-label">Modell</label>
               <select class="form-select" id="openai-model-select">
-                <option value="grok-4.3">grok-4.3 — Standard</option>
+                <option value="grok-3">grok-3 — Standard</option>
                 <option value="grok-3-mini">grok-3-mini — Schnell</option>
               </select>
             </div>
@@ -3236,16 +3238,20 @@ const RateLimit = {
 // ═══════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════
+// ── Fest eingebauter Gemini API-Key (nicht änderbar) ─────────────────────
+const GEMINI_API_KEY = 'AQ.Ab8RN6KN3Ts-O0N7V3StW6D6MER67XJS7sUqmTclAJkP6Scgsg';
+// ─────────────────────────────────────────────────────────────────────────
+
 let state = {
-  geminiKey: '',
-  geminiModel: localStorage.getItem('hf_geminiModel') || 'gemini-3.5-flash',
+  geminiKey: GEMINI_API_KEY,
+  geminiModel: 'gemini-3.5-flash',
   openaiKey: '',
   openaiModel: localStorage.getItem('hf_openaiModel') || 'grok-3',
   claudeKey: '',
   claudeModel: localStorage.getItem('hf_claudeModel') || 'claude-sonnet-4-6',
   ollamaUrl: localStorage.getItem('hf_ollamaUrl') || 'http://localhost:11434',
   ollamaModel: localStorage.getItem('hf_ollamaModel') || 'llama3.2',
-  provider: localStorage.getItem('hf_provider') || 'gemini',
+  provider: 'gemini',
   get apiKey() { return this.provider === 'openai' ? this.openaiKey : this.provider === 'claude' ? this.claudeKey : this.geminiKey; },
   chats: LS.get('hf_chats') || [],
   activeChatId: localStorage.getItem('hf_activeChat') || null,
@@ -3255,14 +3261,14 @@ let state = {
 
 // Verschlüsselte Keys beim Start laden
 (async () => {
-  state.geminiKey = await CRYPTO.decrypt(localStorage.getItem('hf_geminiKey_enc') || '');
+  // geminiKey ist fest eingebaut (GEMINI_API_KEY) — wird nicht aus localStorage geladen
   state.openaiKey = await CRYPTO.decrypt(localStorage.getItem('hf_openaiKey_enc') || '');
   state.claudeKey = await CRYPTO.decrypt(localStorage.getItem('hf_claudeKey_enc') || '');
-  // Klartext-Keys migrieren
-  const plainGemini = localStorage.getItem('hf_geminiKey');
+  // Klartext-Keys migrieren (nur OpenAI)
   const plainOpenai = localStorage.getItem('hf_openaiKey');
-  if (plainGemini) { state.geminiKey = plainGemini; localStorage.setItem('hf_geminiKey_enc', await CRYPTO.encrypt(plainGemini)); localStorage.removeItem('hf_geminiKey'); }
   if (plainOpenai) { state.openaiKey = plainOpenai; localStorage.setItem('hf_openaiKey_enc', await CRYPTO.encrypt(plainOpenai)); localStorage.removeItem('hf_openaiKey'); }
+  // Veralteten Gemini-Key aus localStorage entfernen
+  localStorage.removeItem('hf_geminiKey'); localStorage.removeItem('hf_geminiKey_enc');
   updateApiBanner();
 })();
 
@@ -4410,9 +4416,7 @@ function switchSettingsTab(tab, btn) {
 }
 
 function openSettings() {
-  // API-Keys füllen
-  document.getElementById('gemini-key-input').value = state.geminiKey;
-  document.getElementById('gemini-model-select').value = state.geminiModel;
+  // API-Keys füllen (geminiKey/geminiModel sind fest eingebaut)
   const oaiKeyEl = document.getElementById('openai-key-input');
   if (oaiKeyEl) oaiKeyEl.value = state.openaiKey;
   const oaiModelEl = document.getElementById('openai-model-select');
@@ -4426,13 +4430,10 @@ function openSettings() {
   const ollamaModelEl = document.getElementById('ollama-model-input');
   if (ollamaModelEl) ollamaModelEl.value = state.ollamaModel;
 
-  // Provider-Tab aktivieren
-  document.querySelectorAll('.provider-tab').forEach(b => b.classList.remove('active'));
+  // Provider immer auf Gemini (fest eingebaut)
   document.querySelectorAll('.provider-panel').forEach(p => p.classList.add('hidden'));
-  const tabId = `tab-${state.provider}`;
-  document.getElementById(tabId)?.classList.add('active');
-  document.getElementById(`panel-${state.provider}`)?.classList.remove('hidden');
-  activeProviderTab = state.provider;
+  document.getElementById('panel-gemini')?.classList.remove('hidden');
+  activeProviderTab = 'gemini';
 
   // Theme-Toggle
   const isDark = document.documentElement.dataset.theme === 'dark';
@@ -4470,8 +4471,7 @@ function openSettings() {
 function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
 
 async function saveSettings() {
-  state.geminiKey = document.getElementById('gemini-key-input').value.trim();
-  state.geminiModel = document.getElementById('gemini-model-select').value;
+  // geminiKey und geminiModel sind fest eingebaut — werden nicht aus UI gelesen
   const oaiKeyEl = document.getElementById('openai-key-input');
   if (oaiKeyEl) state.openaiKey = oaiKeyEl.value.trim();
   const oaiModelEl = document.getElementById('openai-model-select');
@@ -4484,20 +4484,16 @@ async function saveSettings() {
   if (ollamaUrlEl) state.ollamaUrl = ollamaUrlEl.value.trim() || 'http://localhost:11434';
   const ollamaModelEl = document.getElementById('ollama-model-input');
   if (ollamaModelEl) state.ollamaModel = ollamaModelEl.value.trim() || 'llama3.2';
-  state.provider = activeProviderTab;
+  // state.provider ist immer 'gemini' — activeProviderTab wird ignoriert
 
-  // Keys verschlüsselt speichern
-  localStorage.setItem('hf_geminiKey_enc', await CRYPTO.encrypt(state.geminiKey));
+  // Keys verschlüsselt speichern (geminiKey fest eingebaut — nicht gespeichert)
   localStorage.setItem('hf_openaiKey_enc', await CRYPTO.encrypt(state.openaiKey));
   localStorage.setItem('hf_claudeKey_enc', await CRYPTO.encrypt(state.claudeKey));
-  localStorage.removeItem('hf_geminiKey');
-  localStorage.removeItem('hf_openaiKey');
-  localStorage.setItem('hf_geminiModel', state.geminiModel);
   localStorage.setItem('hf_openaiModel', state.openaiModel);
   localStorage.setItem('hf_claudeModel', state.claudeModel);
   localStorage.setItem('hf_ollamaUrl', state.ollamaUrl);
   localStorage.setItem('hf_ollamaModel', state.ollamaModel);
-  localStorage.setItem('hf_provider', state.provider);
+  // provider ist immer 'gemini' — wird nicht in localStorage geschrieben
   // Dual-Checkboxen speichern
   localStorage.setItem('hf_dualGemini', document.getElementById('dual-use-gemini')?.checked ? '1' : '0');
   localStorage.setItem('hf_dualGrok',   document.getElementById('dual-use-grok')?.checked   ? '1' : '0');
